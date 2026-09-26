@@ -1,0 +1,13 @@
+# Environnement virtuel Python (se recrée avec requirements.txt)
+.venv/
+
+# Fichiers compilés générés automatiquement par Python
+__pycache__/
+*.pyc
+
+# Données téléchargées et résultats (se régénèrent en relançant le programme)
+data/
+output/
+
+# Cache de pytest
+.pytest_cache/

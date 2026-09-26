@@ -1,0 +1,8 @@
+requests>=2.31
+sgp4>=2.23
+numpy>=1.26
+scipy>=1.11
+pandas>=2.1
+rich>=13.7
+plotly>=5.18
+pytest>=8.0
