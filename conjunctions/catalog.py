@@ -32,6 +32,15 @@ class SpaceObject:
     satrec: Satrec  # le TLE "compris" par SGP4, prêt à calculer des positions
 
     @property
+    def kind(self) -> str:
+        """Catégorie de l'objet : débris, Starlink ou autre satellite."""
+        if self.group != "active" or "DEB" in self.name:
+            return "débris"
+        if self.name.startswith("STARLINK"):
+            return "Starlink"
+        return "satellite"
+
+    @property
     def epoch(self) -> datetime:
         """Date (UTC) à laquelle l'orbite a été mesurée."""
         return sat_epoch_datetime(self.satrec)

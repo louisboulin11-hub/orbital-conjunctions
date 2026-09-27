@@ -13,10 +13,13 @@ from conjunctions.catalog import EARTH_RADIUS_KM, decode_tle, filter_leo, load_c
 from conjunctions.fetch import GROUPS, fetch_all
 from conjunctions.propagate import propagate, propagate_catalog, teme_to_geodetic
 from conjunctions.screening import (
+    CO_ORBITAL_SPEED_KM_S,
     LINEAR_MARGIN_KM,
     coarse_screen,
     coarse_threshold_km,
     count_altitude_overlaps,
+    group_events,
+    refine_events,
 )
 
 console = Console()
@@ -113,15 +116,41 @@ def main() -> None:
                    f"{hits.groupby(['i', 'j']).ngroups:,}")
     console.print(funnel)
 
-    # Aperçu : les 10 paires qui passent le plus près
-    closest = hits.sort_values("distance_km").drop_duplicates(["i", "j"]).head(10)
-    preview = Table(title="Aperçu : les 10 paires les plus proches (avant raffinement)")
-    for column in ("Objet 1", "Objet 2", "Instant (UTC)", "Distance"):
-        preview.add_column(column)
-    for row in closest.itertuples():
+    # 8. Raffinement : regroupement en événements, puis TCA et distance exacts
+    t0 = time.perf_counter()
+    events = refine_events(group_events(hits, step_s), leo, now, step_s)
+    elapsed = time.perf_counter() - t0
+    co_orbital = events["rel_speed_km_s"] < CO_ORBITAL_SPEED_KM_S
+    crossings = events[~co_orbital]
+    risky = crossings[crossings["miss_km"] < threshold_km].copy()
+    risky["type"] = [" / ".join(sorted((leo[i].kind, leo[j].kind))) for i, j in zip(risky["i"], risky["j"])]
+
+    summary = Table(title=f"Raffinement ({elapsed:.0f} s de calcul)")
+    summary.add_column("Étape")
+    summary.add_column("Événements", justify="right")
+    summary.add_row("Touches regroupées en événements", f"{len(events):,}")
+    summary.add_row(f"Vol groupé écarté (vitesse relative < {CO_ORBITAL_SPEED_KM_S * 1000:.0f} m/s)",
+                    f"{co_orbital.sum():,}")
+    summary.add_row(f"[bold]Croisements à moins de {threshold_km:.0f} km (distance exacte)",
+                    f"[bold]{len(risky):,}")
+    console.print(summary)
+
+    by_type = Table(title=f"Croisements à moins de {threshold_km:.0f} km, par type de paire")
+    by_type.add_column("Type")
+    by_type.add_column("Événements", justify="right")
+    by_type.add_column("dont < 1 km", justify="right")
+    for kind, group in risky.groupby("type"):
+        by_type.add_row(kind, f"{len(group):,}", f"{(group['miss_km'] < 1).sum():,}")
+    console.print(by_type)
+
+    closest = Table(title="Les 15 croisements les plus proches")
+    for column in ("TCA (UTC)", "Objet 1", "Objet 2", "Distance", "Vitesse relative"):
+        closest.add_column(column)
+    for row in risky.nsmallest(15, "miss_km").itertuples():
         tca = now + timedelta(seconds=row.tca_s)
-        preview.add_row(leo[row.i].name, leo[row.j].name, f"{tca:%d/%m %H:%M:%S}", f"{row.distance_km:.3f} km")
-    console.print(preview)
+        closest.add_row(f"{tca:%d/%m %H:%M:%S}", leo[row.i].name, leo[row.j].name,
+                        f"{row.miss_km * 1000:.0f} m", f"{row.rel_speed_km_s:.2f} km/s")
+    console.print(closest)
 
 
 if __name__ == "__main__":

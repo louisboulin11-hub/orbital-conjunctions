@@ -12,16 +12,18 @@ On procède en entonnoir pour éviter de comparer les ~160 millions de paires
    du rapprochement maximal pour les seules paires retenues.
 """
 
+import math
 from dataclasses import dataclass
 from datetime import datetime
 
 import numpy as np
 import pandas as pd
+from scipy.optimize import minimize_scalar
 from scipy.spatial import cKDTree
 from sgp4.api import SatrecArray
 
 from .catalog import SpaceObject
-from .propagate import iter_time_chunks
+from .propagate import iter_time_chunks, julian_date
 
 # Vitesse relative maximale entre deux objets en orbite basse : deux objets à
 # ~7,9 km/s qui se croisent de face. On arrondit au-dessus par sécurité.
@@ -30,6 +32,11 @@ MAX_RELATIVE_SPEED_KM_S = 16.0
 # Marge ajoutée au seuil lors de l'estimation "en ligne droite" : sur quelques
 # secondes, la courbure réelle des trajectoires ne l'écarte que de quelques mètres.
 LINEAR_MARGIN_KM = 1.0
+
+# En dessous de cette vitesse relative, les deux objets voyagent "ensemble" :
+# modules amarrés (0 m/s), vol en formation, voisins d'une même constellation.
+# Ce ne sont pas des croisements : on les écarte de la liste des risques.
+CO_ORBITAL_SPEED_KM_S = 0.010  # 10 m/s
 
 
 def coarse_threshold_km(threshold_km: float, step_s: float) -> float:
@@ -141,3 +148,59 @@ def coarse_screen(
     columns = ["i", "j", "t_s", "tca_s", "distance_km"]
     table = pd.concat(hits, ignore_index=True) if hits else pd.DataFrame(columns=columns)
     return ScreeningResult(table, len(kdtree_codes), kdtree_hits)
+
+
+def group_events(hits: pd.DataFrame, step_s: float) -> pd.DataFrame:
+    """Regroupe les touches d'une même paire à des instants consécutifs en "événements".
+
+    Une paire peut se croiser plusieurs fois en 24 h (par exemple une fois par
+    tour d'orbite) : chaque série d'instants consécutifs forme un événement distinct.
+    Pour chaque événement, on garde la meilleure estimation du rapprochement,
+    qui servira de point de départ au raffinement.
+    """
+    h = hits.sort_values(["i", "j", "t_s"]).reset_index(drop=True)
+    new_pair = (h["i"].diff() != 0) | (h["j"].diff() != 0)
+    time_gap = h["t_s"].diff() > 1.5 * step_s
+    h["event"] = (new_pair | time_gap).cumsum()  # numéro d'événement, +1 à chaque rupture
+
+    best = h.loc[h.groupby("event")["distance_km"].idxmin()]
+    events = best[["event", "i", "j", "tca_s"]].rename(columns={"tca_s": "guess_s"})
+    events["touches"] = h.groupby("event").size().loc[events["event"]].to_numpy()
+    return events.reset_index(drop=True)
+
+
+def refine_events(
+    events: pd.DataFrame, objects: list[SpaceObject], start: datetime, step_s: float
+) -> pd.DataFrame:
+    """Calcule précisément, avec SGP4, l'instant et la distance du rapprochement maximal.
+
+    Pour chaque événement, on cherche le minimum de la fonction "distance entre
+    les deux objets au temps t" autour de l'estimation du filtre grossier.
+    minimize_scalar (méthode de Brent) resserre l'intervalle de recherche pas à
+    pas, un peu comme un jeu de "plus chaud / plus froid", jusqu'à la milliseconde.
+    """
+    jd0, fr0 = julian_date(start)
+    results = []
+
+    for event in events.itertuples():
+        sat_a, sat_b = objects[event.i].satrec, objects[event.j].satrec
+
+        def distance_at(t_s: float, sat_a=sat_a, sat_b=sat_b) -> float:
+            _, r_a, _ = sat_a.sgp4(jd0, fr0 + t_s / 86400)
+            _, r_b, _ = sat_b.sgp4(jd0, fr0 + t_s / 86400)
+            return math.dist(r_a, r_b)
+
+        search = minimize_scalar(
+            distance_at,
+            bounds=(event.guess_s - step_s, event.guess_s + step_s),
+            method="bounded",
+            options={"xatol": 1e-3},  # précision : 1 milliseconde
+        )
+        # Vitesse relative au moment du rapprochement : la "violence" d'un éventuel choc
+        _, _, v_a = sat_a.sgp4(jd0, fr0 + search.x / 86400)
+        _, _, v_b = sat_b.sgp4(jd0, fr0 + search.x / 86400)
+        results.append((search.x, search.fun, math.dist(v_a, v_b)))
+
+    refined = events.copy()
+    refined[["tca_s", "miss_km", "rel_speed_km_s"]] = results
+    return refined
