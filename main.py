@@ -1,15 +1,17 @@
 """Point d'entrée du programme : python main.py"""
 
+import time
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 
 import numpy as np
 from rich.console import Console
 from rich.table import Table
+from sgp4.api import SatrecArray
 
-from conjunctions.catalog import decode_tle, filter_leo, load_catalog
+from conjunctions.catalog import EARTH_RADIUS_KM, decode_tle, filter_leo, load_catalog
 from conjunctions.fetch import GROUPS, fetch_all
-from conjunctions.propagate import propagate, teme_to_geodetic
+from conjunctions.propagate import iter_time_chunks, propagate, propagate_catalog, teme_to_geodetic
 
 console = Console()
 
@@ -68,6 +70,39 @@ def main() -> None:
         lat, lon, alt = teme_to_geodetic(propagate(iss.satrec, t)[0], t)
         track.add_row(f"{t:%H:%M}", f"{lat:7.2f}°", f"{lon:8.2f}°", f"{alt:.1f} km")
     console.print(track)
+
+    # 6. Tout le catalogue en orbite basse, sur 24 h, une position toutes les 10 s
+    satrecs = SatrecArray([obj.satrec for obj in leo])
+    failed = np.zeros(len(leo), dtype=bool)  # objets pour lesquels SGP4 a échoué
+    n_positions = 0
+    chunk_mb = 0.0
+
+    console.print("\n[bold]Propagation de tout le catalogue sur 24 h (pas de 10 s)...[/bold]")
+    t0 = time.perf_counter()
+    for times_s, r, v, errors in iter_time_chunks(satrecs, now, 24 * 3600, 10, 30 * 60):
+        n_positions += r.shape[0] * r.shape[1]
+        failed |= (errors != 0).any(axis=1)
+        chunk_mb = max(chunk_mb, (r.nbytes + v.nbytes) / 1e6)
+    elapsed = time.perf_counter() - t0
+
+    console.print(f"  {n_positions:,} positions calculées en {elapsed:.1f} s".replace(",", " "))
+    console.print(f"  Mémoire utilisée par tranche de 30 min : {chunk_mb:.0f} Mo")
+    console.print(f"  Objets en erreur (retombés ou orbite invalide) : {failed.sum()}")
+    for obj in (o for o, f in zip(leo, failed) if f):
+        console.print(f"    - {obj.name} (TLE du {obj.epoch:%d/%m/%Y})")
+
+    # 7. Répartition des altitudes à l'instant présent
+    r0, _, _ = propagate_catalog(satrecs, now, np.array([0.0]))
+    altitudes = np.linalg.norm(r0[:, 0, :], axis=1) - EARTH_RADIUS_KM
+    histogram = Table(title="Nombre d'objets par tranche d'altitude (maintenant)")
+    histogram.add_column("Altitude")
+    histogram.add_column("Objets", justify="right")
+    histogram.add_column("")
+    counts, edges = np.histogram(altitudes[~np.isnan(altitudes)], bins=range(200, 2001, 100))
+    for count, low in zip(counts, edges):
+        bar = "█" * round(40 * count / counts.max())
+        histogram.add_row(f"{low:.0f}-{low + 100:.0f} km", str(count), bar)
+    console.print(histogram)
 
 
 if __name__ == "__main__":

@@ -7,10 +7,11 @@ tenir compte de la rotation de la Terre à l'instant considéré.
 """
 
 import math
+from collections.abc import Iterator
 from datetime import datetime, timezone
 
 import numpy as np
-from sgp4.api import Satrec, jday
+from sgp4.api import Satrec, SatrecArray, jday
 from sgp4.propagation import gstime
 
 # Ellipsoïde WGS-84 : la forme de la Terre (légèrement aplatie aux pôles) utilisée par le GPS
@@ -38,6 +39,39 @@ def propagate(satrec: Satrec, t: datetime) -> tuple[np.ndarray, np.ndarray]:
         # Ex. : objet déjà retombé dans l'atmosphère à la date demandée
         raise ValueError(f"SGP4 a échoué (code {error}) pour l'objet {satrec.satnum}")
     return np.array(r), np.array(v)
+
+
+def propagate_catalog(
+    satrecs: SatrecArray, start: datetime, times_s: np.ndarray
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Positions et vitesses de TOUS les objets à PLUSIEURS instants, en un seul appel.
+
+    times_s : instants de calcul, en secondes après `start`.
+    Renvoie des tableaux de forme (nb objets, nb instants, 3) pour les positions
+    et les vitesses, et (nb objets, nb instants) pour les codes d'erreur (0 = OK).
+    """
+    jd0, fr0 = julian_date(start)
+    jd = np.full(len(times_s), jd0)
+    fr = fr0 + times_s / 86400  # 86 400 secondes dans un jour
+    errors, r, v = satrecs.sgp4(jd, fr)
+    return r, v, errors
+
+
+def iter_time_chunks(
+    satrecs: SatrecArray, start: datetime, duration_s: float, step_s: float, chunk_s: float
+) -> Iterator[tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]]:
+    """Calcule les positions sur toute la fenêtre, une tranche de temps à la fois.
+
+    Garder 24 h de positions en mémoire d'un coup demanderait plusieurs Go.
+    On découpe donc en tranches de `chunk_s` secondes : chaque tranche est
+    calculée, renvoyée à l'appelant (yield), puis oubliée avant la suivante.
+    """
+    times_s = np.arange(0, duration_s + step_s, step_s)
+    per_chunk = int(chunk_s // step_s)
+    for i in range(0, len(times_s), per_chunk):
+        chunk = times_s[i : i + per_chunk]
+        r, v, errors = propagate_catalog(satrecs, start, chunk)
+        yield chunk, r, v, errors
 
 
 def teme_to_geodetic(r: np.ndarray, t: datetime) -> tuple[float, float, float]:
