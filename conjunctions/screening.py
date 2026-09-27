@@ -202,5 +202,5 @@ def refine_events(
         results.append((search.x, search.fun, math.dist(v_a, v_b)))
 
     refined = events.copy()
-    refined[["tca_s", "miss_km", "rel_speed_km_s"]] = results
+    refined[["tca_s", "miss_km", "rel_speed_km_s"]] = results if results else np.empty((0, 3))
     return refined
