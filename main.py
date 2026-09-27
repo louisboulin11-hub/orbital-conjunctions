@@ -1,12 +1,15 @@
 """Point d'entrée du programme : python main.py"""
 
 from collections import Counter
+from datetime import datetime, timedelta, timezone
 
+import numpy as np
 from rich.console import Console
 from rich.table import Table
 
 from conjunctions.catalog import decode_tle, filter_leo, load_catalog
 from conjunctions.fetch import GROUPS, fetch_all
+from conjunctions.propagate import propagate, teme_to_geodetic
 
 console = Console()
 
@@ -43,6 +46,28 @@ def main() -> None:
     console.print(fields)
 
     console.print(f"Altitude de l'ISS : entre {iss.perigee_km:.0f} km et {iss.apogee_km:.0f} km")
+
+    # 4. Position de l'ISS maintenant, calculée par SGP4
+    now = datetime.now(timezone.utc)
+    r, v = propagate(iss.satrec, now)
+    lat, lon, alt = teme_to_geodetic(r, now)
+    tle_age_h = (now - iss.epoch).total_seconds() / 3600
+
+    console.print(f"\n[bold]Position de l'ISS le {now:%d/%m/%Y à %H:%M:%S} UTC[/bold] (TLE âgé de {tle_age_h:.1f} h)")
+    console.print(f"  Repère TEME : x = {r[0]:9.1f} km, y = {r[1]:9.1f} km, z = {r[2]:9.1f} km")
+    console.print(f"  Distance au centre de la Terre : {np.linalg.norm(r):.1f} km")
+    console.print(f"  Vitesse : {np.linalg.norm(v):.3f} km/s ({np.linalg.norm(v) * 3600:.0f} km/h)")
+    console.print(f"  Survole : latitude {lat:.2f}°, longitude {lon:.2f}°, altitude {alt:.1f} km")
+
+    # 5. Trajectoire sur un tour complet (~93 min), un point toutes les 10 minutes
+    track = Table(title="Trajectoire de l'ISS sur un tour")
+    for column in ("Heure (UTC)", "Latitude", "Longitude", "Altitude"):
+        track.add_column(column, justify="right")
+    for minutes in range(0, 101, 10):
+        t = now + timedelta(minutes=minutes)
+        lat, lon, alt = teme_to_geodetic(propagate(iss.satrec, t)[0], t)
+        track.add_row(f"{t:%H:%M}", f"{lat:7.2f}°", f"{lon:8.2f}°", f"{alt:.1f} km")
+    console.print(track)
 
 
 if __name__ == "__main__":

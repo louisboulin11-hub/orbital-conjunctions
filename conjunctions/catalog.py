@@ -10,9 +10,11 @@ La 1re ligne est le nom, les 2 suivantes sont le TLE proprement dit.
 """
 
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 from sgp4.api import Satrec
+from sgp4.conveniences import sat_epoch_datetime
 
 EARTH_RADIUS_KM = 6378.135  # rayon équatorial utilisé par SGP4 (modèle WGS-72)
 LEO_MAX_ALTITUDE_KM = 2000  # limite conventionnelle de l'orbite basse
@@ -28,6 +30,11 @@ class SpaceObject:
     line1: str
     line2: str
     satrec: Satrec  # le TLE "compris" par SGP4, prêt à calculer des positions
+
+    @property
+    def epoch(self) -> datetime:
+        """Date (UTC) à laquelle l'orbite a été mesurée."""
+        return sat_epoch_datetime(self.satrec)
 
     @property
     def perigee_km(self) -> float:
