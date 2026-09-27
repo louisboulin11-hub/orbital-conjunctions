@@ -11,7 +11,13 @@ from sgp4.api import SatrecArray
 
 from conjunctions.catalog import EARTH_RADIUS_KM, decode_tle, filter_leo, load_catalog
 from conjunctions.fetch import GROUPS, fetch_all
-from conjunctions.propagate import iter_time_chunks, propagate, propagate_catalog, teme_to_geodetic
+from conjunctions.propagate import propagate, propagate_catalog, teme_to_geodetic
+from conjunctions.screening import (
+    LINEAR_MARGIN_KM,
+    coarse_screen,
+    coarse_threshold_km,
+    count_altitude_overlaps,
+)
 
 console = Console()
 
@@ -71,27 +77,8 @@ def main() -> None:
         track.add_row(f"{t:%H:%M}", f"{lat:7.2f}°", f"{lon:8.2f}°", f"{alt:.1f} km")
     console.print(track)
 
-    # 6. Tout le catalogue en orbite basse, sur 24 h, une position toutes les 10 s
+    # 6. Répartition des altitudes à l'instant présent
     satrecs = SatrecArray([obj.satrec for obj in leo])
-    failed = np.zeros(len(leo), dtype=bool)  # objets pour lesquels SGP4 a échoué
-    n_positions = 0
-    chunk_mb = 0.0
-
-    console.print("\n[bold]Propagation de tout le catalogue sur 24 h (pas de 10 s)...[/bold]")
-    t0 = time.perf_counter()
-    for times_s, r, v, errors in iter_time_chunks(satrecs, now, 24 * 3600, 10, 30 * 60):
-        n_positions += r.shape[0] * r.shape[1]
-        failed |= (errors != 0).any(axis=1)
-        chunk_mb = max(chunk_mb, (r.nbytes + v.nbytes) / 1e6)
-    elapsed = time.perf_counter() - t0
-
-    console.print(f"  {n_positions:,} positions calculées en {elapsed:.1f} s".replace(",", " "))
-    console.print(f"  Mémoire utilisée par tranche de 30 min : {chunk_mb:.0f} Mo")
-    console.print(f"  Objets en erreur (retombés ou orbite invalide) : {failed.sum()}")
-    for obj in (o for o, f in zip(leo, failed) if f):
-        console.print(f"    - {obj.name} (TLE du {obj.epoch:%d/%m/%Y})")
-
-    # 7. Répartition des altitudes à l'instant présent
     r0, _, _ = propagate_catalog(satrecs, now, np.array([0.0]))
     altitudes = np.linalg.norm(r0[:, 0, :], axis=1) - EARTH_RADIUS_KM
     histogram = Table(title="Nombre d'objets par tranche d'altitude (maintenant)")
@@ -103,6 +90,38 @@ def main() -> None:
         bar = "█" * round(40 * count / counts.max())
         histogram.add_row(f"{low:.0f}-{low + 100:.0f} km", str(count), bar)
     console.print(histogram)
+
+    # 7. Filtres de l'entonnoir sur 24 h
+    threshold_km, step_s = 5.0, 10.0
+    radius_km = coarse_threshold_km(threshold_km, step_s)
+    console.print(f"\n[bold]Recherche des paires à moins de {threshold_km:.0f} km sur 24 h "
+                  f"(pas de {step_s:.0f} s, rayon KD-tree {radius_km:.0f} km)...[/bold]")
+    t0 = time.perf_counter()
+    result = coarse_screen(leo, now, 24 * 3600, step_s, threshold_km)
+    elapsed = time.perf_counter() - t0
+    hits = result.hits
+
+    n = len(leo)
+    funnel = Table(title=f"Entonnoir de détection ({elapsed:.0f} s de calcul)")
+    funnel.add_column("Étape")
+    funnel.add_column("Paires restantes", justify="right")
+    funnel.add_row("Toutes les paires possibles", f"{n * (n - 1) // 2:,}")
+    funnel.add_row("Tranches d'altitude compatibles (pour info)",
+                   f"{count_altitude_overlaps(leo, radius_km + 25):,}")
+    funnel.add_row(f"KD-tree : à moins de {radius_km:.0f} km à un instant", f"{result.kdtree_pairs:,}")
+    funnel.add_row(f"Estimation en ligne droite : moins de {threshold_km + LINEAR_MARGIN_KM:.0f} km",
+                   f"{hits.groupby(['i', 'j']).ngroups:,}")
+    console.print(funnel)
+
+    # Aperçu : les 10 paires qui passent le plus près
+    closest = hits.sort_values("distance_km").drop_duplicates(["i", "j"]).head(10)
+    preview = Table(title="Aperçu : les 10 paires les plus proches (avant raffinement)")
+    for column in ("Objet 1", "Objet 2", "Instant (UTC)", "Distance"):
+        preview.add_column(column)
+    for row in closest.itertuples():
+        tca = now + timedelta(seconds=row.tca_s)
+        preview.add_row(leo[row.i].name, leo[row.j].name, f"{tca:%d/%m %H:%M:%S}", f"{row.distance_km:.3f} km")
+    console.print(preview)
 
 
 if __name__ == "__main__":
