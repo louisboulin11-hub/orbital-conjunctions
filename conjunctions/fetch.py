@@ -67,3 +67,20 @@ def fetch_group(group: str, force: bool = False) -> Path:
 def fetch_all(force: bool = False) -> dict[str, Path]:
     """Télécharge (ou lit en cache) tous les groupes de GROUPS."""
     return {group: fetch_group(group, force) for group in GROUPS}
+
+
+# Contours des côtes (base cartographique libre Natural Earth, échelle 1:110 000 000)
+COASTLINES_URL = (
+    "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_110m_coastline.geojson"
+)
+
+
+def fetch_coastlines() -> Path:
+    """Renvoie le fichier GeoJSON des côtes, téléchargé une seule fois (les côtes ne bougent pas)."""
+    DATA_DIR.mkdir(exist_ok=True)
+    path = DATA_DIR / "coastlines.geojson"
+    if not path.exists():
+        response = requests.get(COASTLINES_URL, timeout=30)
+        response.raise_for_status()
+        path.write_text(response.text, encoding="utf-8")
+    return path

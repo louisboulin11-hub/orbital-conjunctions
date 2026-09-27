@@ -1,6 +1,7 @@
-"""Détecteur de rapprochements orbitaux.
+"""Détecteur de rapprochements orbitaux (calcul long : quelques minutes).
 
 Utilisation : python main.py [options]      (python main.py --help pour la liste)
+Les résultats sont enregistrés dans output/ ; les vues 3D se génèrent ensuite avec view.py.
 """
 
 import argparse
@@ -12,7 +13,15 @@ from rich.console import Console
 
 from conjunctions.catalog import filter_leo, load_catalog
 from conjunctions.fetch import fetch_all
-from conjunctions.report import build_event_table, export_csv, print_by_type, print_events, print_funnel
+from conjunctions.report import (
+    LAST_RUN_CSV,
+    build_event_table,
+    export_csv,
+    print_by_type,
+    print_events,
+    print_funnel,
+    save_last_run,
+)
 from conjunctions.screening import (
     CO_ORBITAL_SPEED_KM_S,
     LINEAR_MARGIN_KM,
@@ -69,11 +78,22 @@ def main() -> None:
     # 3. Tri : on écarte le vol groupé et on applique le seuil sur la distance exacte
     co_orbital = events["rel_speed_km_s"] < CO_ORBITAL_SPEED_KM_S
     crossings = events[~co_orbital & (events["miss_km"] < args.threshold)]
-    table = build_event_table(crossings, leo, start)
+    all_events = build_event_table(crossings, leo, start)
+
+    # 4. Enregistrement systématique de tous les résultats, pour view.py
+    save_last_run(all_events, {
+        "start_utc": start.isoformat(),
+        "hours": args.hours,
+        "threshold_km": args.threshold,
+        "step_s": args.step,
+        "objects": len(leo),
+    })
+
+    table = all_events
     if args.debris_only:
         table = table[table["type"].str.contains("débris")]
 
-    # 4. Affichage
+    # 5. Affichage
     n = len(leo)
     radius_km = coarse_threshold_km(args.threshold, args.step)
     print_funnel(console, [
@@ -98,6 +118,9 @@ def main() -> None:
     if args.csv:
         export_csv(table, args.csv)
         console.print(f"{len(table)} rapprochements exportés dans {args.csv}")
+
+    console.print(f"Résultats enregistrés dans {LAST_RUN_CSV}. "
+                  "Pour les vues 3D : python view.py")
 
 
 if __name__ == "__main__":

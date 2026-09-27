@@ -1,5 +1,6 @@
 """Mise en forme des résultats : tableaux dans le terminal et export CSV."""
 
+import json
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -11,6 +12,11 @@ from .catalog import SpaceObject
 
 # Au-delà de cet âge, un TLE a pu accumuler plusieurs km d'erreur : on le signale
 STALE_TLE_DAYS = 3.0
+
+# Résultats de la dernière détection (écrits par main.py, relus par view.py)
+OUTPUT_DIR = Path(__file__).resolve().parent.parent / "output"
+LAST_RUN_CSV = OUTPUT_DIR / "last_run.csv"
+LAST_RUN_INFO = OUTPUT_DIR / "last_run.json"
 
 COLUMNS = [
     "tca_utc", "object_1", "norad_1", "kind_1", "object_2", "norad_2", "kind_2",
@@ -87,6 +93,25 @@ def print_events(console: Console, table: pd.DataFrame, top: int) -> None:
             age,
         )
     console.print(events)
+
+
+def save_last_run(table: pd.DataFrame, info: dict) -> None:
+    """Enregistre les résultats de la dernière détection, pour que view.py puisse les réutiliser.
+
+    info : description du calcul (date de début, seuil, durée...), écrite en JSON à côté du CSV.
+    """
+    export_csv(table, LAST_RUN_CSV)
+    LAST_RUN_INFO.write_text(json.dumps(info, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def load_last_run() -> tuple[pd.DataFrame, dict]:
+    """Relit les résultats enregistrés par save_last_run."""
+    if not LAST_RUN_CSV.exists():
+        raise FileNotFoundError("Aucune détection enregistrée : lancez d'abord python main.py")
+    table = pd.read_csv(LAST_RUN_CSV, dtype={"norad_1": str, "norad_2": str}, encoding="utf-8-sig")
+    table["tca_utc"] = pd.to_datetime(table["tca_utc"], utc=True)
+    info = json.loads(LAST_RUN_INFO.read_text(encoding="utf-8"))
+    return table, info
 
 
 def export_csv(table: pd.DataFrame, path: Path) -> None:
