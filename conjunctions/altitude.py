@@ -53,6 +53,56 @@ def presence_by_band(objects: list[SpaceObject], start: datetime,
     return pd.DataFrame(fractions, index=[obj.norad_id for obj in objects], columns=bands)
 
 
+def shell_volume_km3(low_km: float, width_km: float = BAND_WIDTH_KM) -> float:
+    """Volume de la coquille sphérique entre les altitudes low_km et low_km + width_km.
+
+    Différence entre deux boules : (4/3)·π·(r2³ - r1³). À épaisseur égale, une tranche
+    haute est plus volumineuse qu'une tranche basse, car elle est plus loin du centre.
+    """
+    r1 = EARTH_RADIUS_KM + low_km
+    r2 = r1 + width_km
+    return 4 / 3 * math.pi * (r2 ** 3 - r1 ** 3)
+
+
+def density_table(presence: pd.DataFrame, active: pd.Series, event_bands: pd.Series,
+                  hours: float, width_km: float = BAND_WIDTH_KM) -> pd.DataFrame:
+    """Densité d'objets et de rapprochements par tranche d'altitude.
+
+    presence : temps de présence de chaque objet par tranche (presence_by_band)
+    active : True pour les objets actifs, indexé comme `presence`
+    event_bands : tranche d'altitude de chaque rapprochement (au TCA)
+    hours : durée de la détection, pour ramener les rapprochements à une journée
+
+    "Rapprochements par objet et par jour" = 2 × rapprochements ÷ objets, car chaque
+    rapprochement implique deux objets. Si les objets se croisaient comme les molécules
+    d'un gaz, cette valeur serait proportionnelle à la densité : le rapport des deux
+    serait alors à peu près le même d'une tranche à l'autre.
+    """
+    is_active = active.reindex(presence.index).fillna(False).astype(bool).to_numpy()
+    events_per_band = event_bands.dropna().astype(int).value_counts()
+    rows = []
+    for band in presence.columns:
+        objects = presence[band].sum()
+        events = int(events_per_band.get(band, 0))
+        if objects < 0.5 and events == 0:
+            continue  # tranche vide
+        volume = shell_volume_km3(band, width_km)
+        density = objects / volume * 1e9  # objets par milliard de km³
+        per_day = events * 24 / hours
+        pressure = 2 * per_day / objects if objects > 0 else float("nan")
+        rows.append({
+            "band": int(band),
+            "objects": objects,
+            "active_objects": presence[band][is_active].sum(),
+            "inactive_objects": presence[band][~is_active].sum(),
+            "density": density,
+            "events_per_day": per_day,
+            "events_per_object_per_day": pressure,
+            "pressure_over_density": pressure / density if density > 0 else float("nan"),
+        })
+    return pd.DataFrame(rows)
+
+
 def event_altitudes(events: pd.DataFrame, objects: list[SpaceObject]) -> np.ndarray:
     """Altitude (km) de chaque rapprochement au TCA, calculée avec SGP4 sur le premier objet.
 

@@ -13,7 +13,7 @@ import pandas as pd
 from rich.console import Console
 from rich.table import Table
 
-from conjunctions.altitude import band_of, event_altitudes, presence_by_band
+from conjunctions.altitude import band_of, density_table, event_altitudes, presence_by_band
 from conjunctions.catalog import filter_leo, load_catalog
 from conjunctions.fetch import fetch_all
 from conjunctions.governance import (
@@ -102,6 +102,31 @@ def print_band_index(console: Console, band_index: pd.DataFrame) -> None:
     console.print(table)
 
 
+def print_density(console: Console, density: pd.DataFrame) -> None:
+    """Densité d'objets et de rapprochements par tranche d'altitude."""
+    table = Table(title="Densité par tranche d'altitude (rapprochements nominaux, ramenés à 24 h)")
+    for column in ("Tranche", "Objets", "dont actifs", "dont inactifs", "Densité (/10⁹ km³)",
+                   "Rapproch. / jour", "Rapproch. / objet / jour", "Rapport / densité"):
+        table.add_column(column, justify="left" if column == "Tranche" else "right")
+    for _, row in density.iterrows():
+        band = int(row["band"])  # iterrows convertit la ligne en nombres décimaux
+        table.add_row(
+            f"{band}-{band + 100} km",
+            f"{row['objects']:,.0f}".replace(",", " "),
+            f"{row['active_objects']:,.0f}".replace(",", " "),
+            f"{row['inactive_objects']:,.0f}".replace(",", " "),
+            f"{row['density']:.1f}",
+            f"{row['events_per_day']:,.0f}".replace(",", " "),
+            f"{row['events_per_object_per_day']:.2f}",
+            f"{row['pressure_over_density']:.3f}",
+        )
+    console.print(table)
+    console.print("Lecture : si le rapport / densité était à peu près le même d'une tranche à "
+                  "l'autre, le nombre de rapprochements par objet croîtrait comme la densité "
+                  "(comportement de type « gaz »). La densité est moyennée sur 100 km, alors que "
+                  "les couches de Starlink ne font que quelques km d'épaisseur.")
+
+
 def main() -> None:
     console = Console()
     try:
@@ -133,6 +158,7 @@ def main() -> None:
         global_index, band_index = overrepresentation(classified, metadata, presence)
     print_global_index(console, global_index)
     print_band_index(console, band_index)
+    print_density(console, density_table(presence, metadata["active"], classified["band"], info["hours"]))
 
     console.print("Ces catégories décrivent qui se croise de près, pas un niveau de risque : "
                   "les distances sont nominales (TLE précis à ~1 km). Un indice différent de 1 "
