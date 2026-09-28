@@ -13,9 +13,17 @@ import pandas as pd
 from rich.console import Console
 from rich.table import Table
 
+from conjunctions.altitude import band_of, event_altitudes, presence_by_band
 from conjunctions.catalog import filter_leo, load_catalog
 from conjunctions.fetch import fetch_all
-from conjunctions.governance import CATEGORIES, classify_events, summarize_categories
+from conjunctions.governance import (
+    CATEGORIES,
+    LABELS,
+    MIN_EXPECTED_EVENTS,
+    classify_events,
+    overrepresentation,
+    summarize_categories,
+)
 from conjunctions.metadata import build_metadata
 from conjunctions.report import load_last_run
 
@@ -52,6 +60,48 @@ def print_examples(console: Console, classified, per_category: int = 3) -> None:
     console.print(table)
 
 
+def fmt_index(value) -> str:
+    """Indice arrondi, ou "—" s'il n'a pas été calculé (effectif attendu insuffisant)."""
+    return "—" if value is None or pd.isna(value) else f"{value:.2f}"
+
+
+def print_global_index(console: Console, global_index: pd.DataFrame) -> None:
+    """Indice de sur-représentation global, naïf et corrigé de l'altitude."""
+    table = Table(title="Sur-représentation : part observée / part attendue au hasard")
+    for column in ("Catégorie", "Observé", "Part obs.", "Attendu naïf", "Indice naïf",
+                   "Attendu par altitude", "Indice corrigé"):
+        table.add_column(column, justify="left" if column == "Catégorie" else "right")
+    for _, row in global_index.iterrows():
+        table.add_row(row["catégorie"], f"{row['observé']:,}".replace(",", " "),
+                      f"{row['part observée (%)']:.1f} %", f"{row['part attendue, naïve (%)']:.1f} %",
+                      fmt_index(row["indice naïf"]), f"{row['part attendue, par altitude (%)']:.1f} %",
+                      fmt_index(row["indice corrigé"]))
+    console.print(table)
+    console.print(f"Indice > 1 : catégorie plus fréquente que ne le prévoit la composition du "
+                  f"catalogue. « — » : moins de {MIN_EXPECTED_EVENTS} rapprochements attendus.")
+
+
+def print_band_index(console: Console, band_index: pd.DataFrame) -> None:
+    """Indice par tranche d'altitude, pour les quatre catégories principales."""
+    main_categories = ["intra", "inter", "active_inactive", "inactive_inactive"]
+    table = Table(title="Indice corrigé par tranche d'altitude : indice (nombre observé)")
+    table.add_column("Tranche")
+    table.add_column("Objets", justify="right")
+    table.add_column("Rapproch.", justify="right")
+    for code in main_categories:
+        table.add_column(LABELS[code].split(" (")[0], justify="right")
+    for band, rows in band_index.groupby("band"):
+        by_code = rows.set_index("category")
+        table.add_row(
+            f"{band}-{band + 100} km",
+            f"{by_code['objects'].iloc[0]:,.0f}".replace(",", " "),
+            f"{by_code['events'].iloc[0]:,}".replace(",", " "),
+            *[f"{fmt_index(by_code.loc[code, 'index'])} ({by_code.loc[code, 'observed']})"
+              for code in main_categories],
+        )
+    console.print(table)
+
+
 def main() -> None:
     console = Console()
     try:
@@ -63,7 +113,8 @@ def main() -> None:
                   f"{len(events)} rapprochements à moins de {info['threshold_km']:g} km sur {info['hours']:g} h.")
 
     with console.status("Lecture du catalogue et du SATCAT..."):
-        metadata = build_metadata(filter_leo(load_catalog(fetch_all())))
+        objects = filter_leo(load_catalog(fetch_all()))
+        metadata = build_metadata(objects)
     active = metadata[metadata["active"]]
     console.print(f"Catalogue : {len(metadata)} objets, dont {len(active)} actifs ; "
                   f"{(active['family'] != '').mean():.0%} des actifs rattachés à une famille connue.")
@@ -71,8 +122,24 @@ def main() -> None:
     classified = classify_events(events, metadata)
     print_summary(console, summarize_categories(classified), info["threshold_km"])
     print_examples(console, classified)
+
+    # Normalisation : comparaison avec la part attendue si les objets se croisaient au hasard
+    with console.status("Temps de présence par tranche d'altitude et altitude des rapprochements..."):
+        presence = presence_by_band(objects, datetime.fromisoformat(info["start_utc"]))
+        altitudes = event_altitudes(classified, objects)
+        classified["band"] = pd.Series(altitudes).map(
+            lambda alt: pd.NA if pd.isna(alt) else int(band_of(alt)))
+    with console.status("Calcul des parts attendues..."):
+        global_index, band_index = overrepresentation(classified, metadata, presence)
+    print_global_index(console, global_index)
+    print_band_index(console, band_index)
+
     console.print("Ces catégories décrivent qui se croise de près, pas un niveau de risque : "
-                  "les distances sont nominales (TLE précis à ~1 km).")
+                  "les distances sont nominales (TLE précis à ~1 km). Un indice différent de 1 "
+                  "peut venir de la géométrie des orbites (même altitude ET même inclinaison au "
+                  "sein d'une constellation) et non du comportement des opérateurs ; le modèle "
+                  "« au hasard » ignore aussi la vitesse relative. Le catalogue ne contient "
+                  "presque ni corps de fusée ni satellites hors service.")
 
 
 if __name__ == "__main__":
