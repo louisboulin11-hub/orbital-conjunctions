@@ -38,8 +38,8 @@ danger aurait été signalé :
 
 | Collision | Information disponible | Distance prévue | Instant prévu | Alerte < 5 km |
 |---|---|---|---|---|
-| Iridium 33 / Cosmos 2251 (10/02/2009) | de J-3 à quelques heures avant | 584 à 1 039 m | à 0,1 s de l'impact réel | ✅ à chaque fois |
-| CERISE / fragment d'Ariane 1 (24/07/1996) | de J-3 à la veille | 895 à 1 168 m | 09:48:02 UTC (heure réelle non publiée) | ✅ à chaque fois |
+| Iridium 33 / Cosmos 2251 (10/02/2009) | de J-3 à quelques heures avant | 584 à 1 039 m | à 0,1 s de l'impact réel | Oui, à chaque fois |
+| CERISE / fragment d'Ariane 1 (24/07/1996) | de J-3 à la veille | 895 à 1 168 m | 09:48:02 UTC (heure réelle non publiée) | Oui, à chaque fois |
 
 - Avec les TLE de la veille, l'outil prévoit **584 m** pour Iridium / Cosmos : exactement la
   valeur publiée par le système SOCRATES de CelesTrak le jour de la collision, ce qui valide
