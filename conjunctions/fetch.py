@@ -84,3 +84,26 @@ def fetch_coastlines() -> Path:
         response.raise_for_status()
         path.write_text(response.text, encoding="utf-8")
     return path
+
+
+# Catalogue des objets (SATCAT) : type, statut opérationnel, pays propriétaire...
+# Un seul fichier pour tous les objets, mis à jour une fois par jour par CelesTrak.
+SATCAT_URL = "https://celestrak.org/pub/satcat.csv"
+SATCAT_MAX_AGE_S = 24 * 3600  # 24 heures : inutile de le télécharger plus souvent
+
+
+def fetch_satcat(force: bool = False) -> Path:
+    """Renvoie le fichier SATCAT (CSV), re-téléchargé au plus une fois par jour."""
+    DATA_DIR.mkdir(exist_ok=True)
+    path = DATA_DIR / "satcat.csv"
+    if path.exists() and not force and time.time() - path.stat().st_mtime < SATCAT_MAX_AGE_S:
+        return path
+
+    response = requests.get(SATCAT_URL, timeout=60)
+    if response.status_code == 403 and path.exists():  # refus de CelesTrak : on garde la copie
+        return path
+    response.raise_for_status()
+    if not response.text.startswith("OBJECT_NAME,"):  # on vérifie l'en-tête avant d'écraser le cache
+        raise RuntimeError(f"Réponse inattendue de CelesTrak (SATCAT) : {response.text[:200]!r}")
+    path.write_text(response.text, encoding="utf-8")
+    return path
