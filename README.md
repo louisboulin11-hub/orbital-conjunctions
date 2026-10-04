@@ -56,29 +56,22 @@ Une même paire peut se croiser plusieurs fois dans la journée. Les objets qui 
 
 ## Vérification sur deux collisions réelles
 
-Le script backtest.py se place dans la situation de l'époque : il ne prend que les TLE publiés
-avant chaque collision (3 jours, 2 jours, 1 jour et quelques heures avant), puis lance la même
-détection que le programme principal.
+Le script backtest.py ne prend que les TLE publiés avant chaque collision (3 jours, 2 jours, 1 jour et quelques heures avant) puis lance la même détection que le programme principal :
 
     Collision                        Distance prévue    Instant prévu              Alerte < 5 km
     Iridium 33 / Cosmos 2251 (2009)  584 à 1 039 m      à 0,1 s de l'impact réel   oui, à chaque fois
     CERISE / débris d'Ariane (1996)  895 à 1 168 m      09:48:02 UTC               oui, à chaque fois
 
-Pour la collision CERISE, l'heure réelle de l'impact n'est pas publiée : l'instant prévu ne
-peut pas être vérifié.
-
+Pour la collision CERISE, l'horaire réel de l'impact n'est pas public.
 Ce que ça montre :
 
-- Le danger aurait été signalé dans les deux cas, dès trois jours avant.
+- Le danger aurait été signalé dans les deux cas et dès trois jours avant
 - Avec les TLE de la veille, le programme prévoit 584 m pour Iridium / Cosmos, exactement la
-  valeur publiée à l'époque par le système SOCRATES de CelesTrak, qui faisait le même travail.
-  Deux calculs indépendants donnent le même résultat.
-- La vraie distance était 0 m (il y a eu collision). L'écart de 0,6 à 1,2 km vient de
-  l'imprécision des TLE, d'environ 1 km. C'est pourquoi le seuil d'alerte doit être large :
-  avec un seuil de 1 km, l'alerte aurait été manquée deux jours avant.
-- Seule la paire concernée a été rejouée : le test vérifie que le rapprochement aurait été
-  détecté, pas qu'il aurait été jugé prioritaire. En 2009, SOCRATES l'avait bien signalé, mais
-  au milieu de centaines d'autres rapprochements (64e en moyenne), et personne n'a réagi.
+  valeur publiée à l'époque par le système SOCRATES de CelesTrak
+- L'écart de 0,6 à 1,2 km vient de l'imprécision des TLE d'environ 1 km. C'est pourquoi le seuil d'alerte doit être large (avec un seuil de 1 km, l'alerte aurait été manquée deux jours avant)
+- Seule la paire concernée a été rétro-testée ; le test vérifie que le rapprochement aurait été
+  détecté, mais pas qu'il aurait été jugé prioritaire. En 2009, SOCRATES l'avait bien signalé, mais
+  au milieu de centaines d'autres rapprochements (64e en moyenne).
 
 
 ## Analyse de la congestion
@@ -98,44 +91,30 @@ Starlink, 19 à 23 % ont lieu entre opérateurs différents, et environ 4 % impl
 
 Cependant, ces pourcentages bruts sont trompeurs. Starlink représente nen effet 70 % des satellites
 actifs et il est donc normal qu'il soit impliqué dans la plupart des rapprochements. Pour savoir
-si une catégorie est plus fréquente que prévu, le programme calcule un indice : la part observée
-divisée par la part attendue si les objets se croisaient au hasard. Un indice de 1 veut dire
-"autant que prévu", au-dessus de 1 "plus que prévu". Le calcul est réalisé de deux façons. La version simple suppose que n'importe quelle paire d'objets peut se croiser. La version corrigée ne compare que des objets présents à la même altitude (par tranches de 100 km), car deux objets à 400 et 1 200 km ne se croiseront jamais. Les débris ayant souvent des orbites allongées, chaque objet est compté dans chaque tranche au prorata du temps qu'il y passe.
+si une catégorie est plus fréquente que prévu, le programme calcule un indice : le rapport entre la part observée et la part attendue si les objets se croisaient au hasard. Le calcul est réalisé de deux façons. La version simple suppose que n'importe quelle paire d'objets peut se croiser. La version "corrigée" ne compare que des objets présents à la même altitude,par tranches de 100 km. Les débris ayant souvent des orbites allongées, chaque objet est compté dans chaque tranche au prorata du temps qu'il y passe.
 
-Résultat, pour la détection du 27 septembre 2026 : avec le calcul simple, les rapprochements
-Starlink / Starlink semblent deux fois plus fréquents que prévu (indice 2,14) ; avec le calcul
-corrigé de l'altitude, l'indice tombe à 0,98. Sur les deux journées analysées, les quatre
+Pour la détection du 27 septembre 2026, avec le calcul simple, les rapprochements
+Starlink / Starlink semblent deux fois plus fréquents que prévu (indice 2,14). Mais avec le calcul
+corrigé de l'altitude, l'indice tombe à 0,98. Sur deux journées analysées, les quatre
 catégories principales ont un indice corrigé compris entre 0,9 et 1,3 (la petite catégorie
-"opérateur indéterminé", moins d'une centaine de rapprochements, varie davantage : 1,1 puis
-1,5). Autrement dit, la répartition des rapprochements
-s'explique en grande partie par le nombre d'objets présents à chaque altitude, et non par une
-catégorie d'acteurs en particulier. La raison est simple : plus de 90 % des rapprochements ont
-lieu entre 400 et 500 km, l'altitude où volent la plupart des Starlink.
+"opérateur indéterminé", comptant moins d'une centaine de rapprochements, varie le plus : 1,1 puis
+1,5). Cela signifie que la répartition des rapprochements s'explique en grande partie par le nombre d'objets présents à chaque altitude, plutôt que par une
+catégorie d'acteurs en particulier. Pour chaque tranche d'altitude, le programme compare la densité d'objets et le nombre de rapprochements subis en moyenne par chaque objet. Le nombre de rapprochements par objet augmente à peu près en proportion de la densité, comme pour
+les molécules d'un gaz.
 
-Densité. Pour chaque tranche d'altitude, le programme calcule le nombre d'objets par volume
-d'espace, et le nombre de rapprochements subis en moyenne par chaque objet. La tranche 400-500 km
-compte environ 173 objets par milliard de km3, 6 à 12 fois plus que les autres : chaque objet y
-subit environ 11 rapprochements par jour, contre environ 1 ailleurs. Entre 300 et 1 000 km, le
-nombre de rapprochements par objet augmente à peu près en proportion de la densité, comme pour
-les molécules d'un gaz. C'est une observation sur une dizaine de tranches, pas une loi démontrée.
-
-Matrice d'exposition. La page output/exposure.html montre, sous forme de tableau coloré, le
-nombre de rapprochements entre chaque groupe d'opérateurs, avec une ligne pour les débris. Une
+La page output/exposure.html établit la matrice d'exposition. Elle montre le
+nombre de rapprochements entre chaque groupe d'opérateurs. Une
 seconde vue divise ces nombres par le nombre de satellites de chaque opérateur. Sur la
-détection du 27 septembre 2026, elle fait apparaître une asymétrie : chaque satellite de petites constellations qui volent à la même
+détection du 27 septembre 2026, elle montre une asymétrie : chaque satellite de petites constellations qui volent à la même
 altitude que Starlink (HawkEye 360, Jilin, Planet) croise en moyenne 5 à 9 Starlink par jour,
 alors que chaque Starlink ne croise ces satellites que quelques centièmes de fois par jour.
-Kuiper (Amazon), qui vole plus haut, vers 630 km, n'est presque pas exposé à Starlink.
+Kuiper (Amazon), qui vole plus haut (vers 630 km) n'est presque pas exposé à Starlink.
 
-Matrice d'exposition pour la détection du 4 octobre 2026, vue "rapprochements par jour" : chaque
-case donne le nombre de rapprochements entre le groupe de la ligne et celui de la colonne. Les
-cases grisées de la diagonale, avec leur valeur entre parenthèses, sont les rapprochements à
-l'intérieur d'une même constellation, qui ne sont pas de l'exposition entre opérateurs. La
-couleur suit une échelle logarithmique (chaque palier correspond à une multiplication par 10).
+Ci-dessous la matrice d'exposition pour la détection du 4 octobre 2026 :
 
 ![Matrice d'exposition entre opérateurs](docs/images/exposure.png)
 
-Historique. Chaque analyse est enregistrée dans output/history/ (une ligne par détection, plus
+Chaque analyse est enregistrée dans output/history/ (une ligne par détection, plus
 le détail par tranche d'altitude), avec une copie des rapprochements bruts pour pouvoir refaire
 les calculs plus tard. Analyser deux fois la même détection remplace sa ligne au lieu de
 l'ajouter. Chaque ligne garde les paramètres de calcul et un numéro de version de la méthode,
@@ -144,15 +123,8 @@ nombre de rapprochements Starlink / Starlink a baissé de 21 % alors que le nomb
 pas changé ; deux journées ne suffisent pas à dire s'il s'agit d'une fluctuation ou d'une
 tendance.
 
-Ce que cette analyse ne dit pas. Elle décrit qui se croise de près, pas qui est en danger. Un
-indice proche de 1 ne prouve ni une bonne ni une mauvaise coordination entre opérateurs : les
-manœuvres d'évitement prévues ne figurent pas dans les TLE publics. Enfin, le modèle "au hasard"
-ignore l'inclinaison des orbites et la vitesse de croisement.
-
 
 ## Installation
-
-Python 3.12 est recommandé.
 
     python -m venv .venv
     .venv\Scripts\activate          (sous macOS ou Linux : source .venv/bin/activate)
@@ -161,18 +133,14 @@ Python 3.12 est recommandé.
 
 ## Utilisation
 
-    python main.py          détection des rapprochements sur les 24 h à venir (environ 6 min)
-    python congestion.py    analyse de la congestion de la dernière détection (environ 20 s)
-    python view.py          vues 3D à jour de la dernière détection (quelques secondes)
-    python backtest.py      vérification sur les collisions de 2009 et 1996 (quelques secondes)
-    python demo.py          démonstration : un TLE décodé, la position actuelle de l'ISS...
-
-Pour un historique cohérent, lancer congestion.py juste après main.py : l'analyse utilise le
-catalogue du moment, qui doit être celui de la détection.
+    python main.py          détecte les rapprochements sur les 24 h à venir
+    python congestion.py    analyse de la congestion de la dernière détection
+    python view.py          vues 3D à jour de la dernière détection
+    python backtest.py      vérification sur les collisions de 2009 et 1996
 
 La détection est longue, mais il suffit de la relancer une ou deux fois par jour. view.py
-recalcule ensuite les positions à l'instant présent en quelques secondes : il suffit de le
-relancer puis de rafraîchir la page HTML.
+recalcule ensuite les positions à l'instant présent en quelques secondes (il suffit de le
+relancer puis de rafraîchir la page HTML).
 
 Principales options (liste complète avec --help) :
 
@@ -183,9 +151,7 @@ Principales options (liste complète avec --help) :
     python view.py --debris-only        vues 3D limitées aux rapprochements impliquant un débris
     python view.py --event 3            détailler le 3e rapprochement à venir
 
-backtest.py demande les identifiants Space-Track au premier lancement. Le mot de passe est
-saisi sans s'afficher et n'est enregistré nulle part. Les données téléchargées restent dans
-data/history/ : les conditions d'utilisation de Space-Track interdisent de les redistribuer.
+backtest.py demande les identifiants Space-Track au premier lancement.
 
 Les résultats sont écrits dans le dossier output/ :
 
@@ -220,32 +186,27 @@ Les résultats sont écrits dans le dossier output/ :
 
 ## Limites
 
-- Précision : es TLE sont précis à environ 1 km au moment de la mesure et l'erreur augmente de
-  quelques km par jour. Les distances affichées sont des distances "nominales" : l'outil sert à
-  repérer les rapprochements qui méritent une analyse plus fine, pas à calculer une probabilité
-  de collision, qui demanderait de connaître l'incertitude de chaque position.
-- Manœuvres. Un satellite qui allume ses moteurs rend son TLE faux jusqu'à la mesure suivante.
+- Précision : les TLE sont précis à environ 1 km au moment de la mesure et l'erreur augmente de
+  quelques km par jour
+- Manœuvres : un satellite qui allume ses moteurs rend son TLE faux jusqu'à la mesure suivante.
   Or les satellites Starlink, qui manœuvrent de façon autonome, sont impliqués dans la grande
-  majorité des rapprochements détectés.
-- Catalogue incomplet. Le catalogue ne contient ni les corps de fusée abandonnés, ni les
+  majorité des rapprochements détectés
+- Incomplétude du catalogue : il ne contient ni les corps de fusée abandonnés, ni les
   satellites hors service, ni les débris autres que les trois nuages cités. La part réelle des
-  rapprochements impliquant des débris est donc plus élevée que celle mesurée ici.
-- Priorisation. Les rapprochements sont classés par distance, qui n'est pas un bon indicateur
-  du danger réel (voir la vérification sur les collisions réelles).
-- Identification des opérateurs. Elle repose sur le nom des satellites et sur une liste écrite à
-  la main. Les satellites non identifiés sont regroupés par pays, pas par opérateur.
+  rapprochements impliquant des débris est donc plus élevée que celle mesurée ici
+- Priorisation : les rapprochements sont classés par distance, qui n'est pas un bon indicateur
+  du danger réel
+- Identification des opérateurs : elle repose sur le nom des satellites et sur une liste écrite à
+  la main. Les satellites non identifiés sont regroupés par pays, pas par opérateur
 
 
 ## Pistes non réalisées
 
-Voici les pistes identifiées puis écartées pour l'instant parce que leur coût dépassait leur intérêt :
+Voici les pistes identifiées puis écartées pour l'instant car leur coût dépassait leur intérêt :
 
-- utiliser le catalogue complet de Space-Track, pour inclure les corps de fusée, les satellites
-  hors service et tous les débris ;
-- répartir la détection sur plusieurs cœurs du processeur : les instants de la grille sont
-  indépendants, mais la détection ne tourne qu'une ou deux fois par jour ;
-- afficher les positions en temps réel dans la page (petit serveur web local, ou calcul SGP4 dans
-  le navigateur en JavaScript) : view.py en quelques secondes suffit ;
-- animer le mouvement des objets : surtout décoratif, pour une page beaucoup plus lourde ;
-- rejouer tout le catalogue de 2009, pour tester la priorisation et pas seulement la détection ;
-- ajouter des intervalles de confiance aux indices, pour distinguer les vrais écarts du hasard
+- utiliser le catalogue complet de Space-Track
+- répartir la détection sur plusieurs cœurs du processeur
+- afficher les positions en temps réel
+- animer le mouvement des objets
+- rejouer tout le catalogue de 2009 pour tester la priorisation
+- ajouter des intervalles de confiance aux indices pour distinguer les vrais écarts du hasard
