@@ -85,6 +85,22 @@ d'où plus de rapprochements que de paires. Les objets qui voyagent ensemble (mo
 à une station spatiale, satellites en vol en formation) sont écartés : leur vitesse relative
 est inférieure à 10 m/s, ce ne sont pas des croisements.
 
+Vue d'ensemble produite par view.py : les objets du catalogue le 4 octobre 2026 à 19:01 UTC
+(bleu : Starlink, orange : autres satellites, vert : débris), l'ISS, Hubble et la station
+chinoise Tiangong avec leur orbite, et en rouge l'endroit où auront lieu les 20 prochains
+rapprochements les plus proches. La page est interactive : on peut faire tourner le globe et
+survoler un objet pour afficher son nom.
+
+![Vue d'ensemble des objets en orbite basse](docs/images/overview.png)
+
+Détail d'un rapprochement (event.html) : deux satellites Starlink qui doivent passer à 19 m
+l'un de l'autre, à 7,68 km/s, le 5 octobre 2026 à 01:19:53 UTC. À gauche, les deux orbites et
+le point de rapprochement ; à droite, les trajectoires des deux satellites sur trois centièmes
+de seconde autour de cet instant, avec en rouge la distance minimale. Comme toutes les distances
+de l'outil, ces 19 m sont une valeur nominale, calculée avec des TLE précis à environ 1 km.
+
+![Détail d'un rapprochement entre deux satellites Starlink](docs/images/event.png)
+
 
 ## Vérification sur deux collisions réelles
 
@@ -169,6 +185,14 @@ altitude que Starlink (HawkEye 360, Jilin, Planet) croise en moyenne 5 à 9 Star
 alors que chaque Starlink ne croise ces satellites que quelques centièmes de fois par jour.
 Kuiper (Amazon), qui vole plus haut, vers 630 km, n'est presque pas exposé à Starlink.
 
+Matrice d'exposition pour la détection du 4 octobre 2026, vue "rapprochements par jour" : chaque
+case donne le nombre de rapprochements entre le groupe de la ligne et celui de la colonne. Les
+cases grisées de la diagonale, avec leur valeur entre parenthèses, sont les rapprochements à
+l'intérieur d'une même constellation, qui ne sont pas de l'exposition entre opérateurs. La
+couleur suit une échelle logarithmique (chaque palier correspond à une multiplication par 10).
+
+![Matrice d'exposition entre opérateurs](docs/images/exposure.png)
+
 Historique. Chaque analyse est enregistrée dans output/history/ (une ligne par détection, plus
 le détail par tranche d'altitude), avec une copie des rapprochements bruts pour pouvoir refaire
 les calculs plus tard. Analyser deux fois la même détection remplace sa ligne au lieu de
@@ -249,6 +273,7 @@ Les résultats sont écrits dans le dossier output/ :
         governance.py          classement des rapprochements, indices, matrice d'exposition
         altitude.py            temps de présence et densité par tranche d'altitude
         archive.py             historique des analyses
+    docs/images/               captures d'écran utilisées dans ce README
 
 
 ## Limites
