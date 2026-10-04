@@ -7,13 +7,14 @@ rapprochement selon les acteurs en présence.
 Rappel : une distance nominale inférieure au seuil n'est pas une mesure de risque.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 import pandas as pd
 from rich.console import Console
 from rich.table import Table
 
 from conjunctions.altitude import band_of, density_table, event_altitudes, presence_by_band
+from conjunctions.archive import HISTORY_DIR, load_history, save_history
 from conjunctions.catalog import filter_leo, load_catalog
 from conjunctions.fetch import fetch_all
 from conjunctions.governance import (
@@ -27,6 +28,9 @@ from conjunctions.governance import (
 )
 from conjunctions.report import OUTPUT_DIR
 from conjunctions.visualize import plot_exposure
+
+# Au-delà, le catalogue a pu changer depuis la détection : on prévient l'utilisateur
+STALE_RUN_HOURS = 12
 from conjunctions.metadata import build_metadata
 from conjunctions.report import load_last_run
 
@@ -130,6 +134,34 @@ def print_density(console: Console, density: pd.DataFrame) -> None:
                   "les couches de Starlink ne font que quelques km d'épaisseur.")
 
 
+def print_evolution(console: Console, history: pd.DataFrame, last: int = 10) -> None:
+    """Les dernières analyses enregistrées, pour suivre l'évolution dans le temps."""
+    if len(history) < 2:
+        console.print(f"{len(history)} analyse enregistrée : l'évolution s'affichera à partir de deux.")
+        return
+    latest = history.iloc[-1]
+    table = Table(title=f"Évolution : les {min(last, len(history))} dernières détections analysées")
+    for column in ("Détection (UTC)", "Objets", "Rapproch.", "Intra", "Inter", "Pollution",
+                   "Indice corr. intra", "Indice corr. inter", "Indice corr. actif/inactif", "Comparable"):
+        table.add_column(column, justify="left" if column.startswith("Détection") else "right")
+    for _, row in history.tail(last).iterrows():
+        # Comparable à la dernière analyse : mêmes paramètres et même version de la méthode
+        same = all(row[c] == latest[c] for c in ("threshold_km", "hours", "step_s", "method_version"))
+        pollution = row["share_active_inactive"] + row["share_inactive_inactive"]
+        table.add_row(
+            f"{datetime.fromisoformat(row['detection_start_utc']):%d/%m/%Y %H:%M}",
+            f"{row['objects']:,}".replace(",", " "),
+            f"{row['events_total']:,}".replace(",", " "),
+            f"{row['share_intra']:.1%}", f"{row['share_inter']:.1%}", f"{pollution:.1%}",
+            fmt_index(row["index_adjusted_intra"]), fmt_index(row["index_adjusted_inter"]),
+            fmt_index(row["index_adjusted_active_inactive"]),
+            "oui" if same else "[yellow]non",
+        )
+    console.print(table)
+    console.print("Une évolution peut venir du catalogue (objets ajoutés ou retirés par CelesTrak) "
+                  "autant que de la réalité ; il faut plusieurs semaines de données avant de parler de tendance.")
+
+
 def main() -> None:
     console = Console()
     try:
@@ -139,6 +171,11 @@ def main() -> None:
         return
     console.print(f"Dernière détection : {datetime.fromisoformat(info['start_utc']):%d/%m %H:%M} UTC, "
                   f"{len(events)} rapprochements à moins de {info['threshold_km']:g} km sur {info['hours']:g} h.")
+    age_h = (datetime.now(timezone.utc) - datetime.fromisoformat(info["start_utc"])).total_seconds() / 3600
+    if age_h > STALE_RUN_HOURS:
+        console.print(f"[yellow]Cette détection a {age_h:.0f} h : le catalogue et le SATCAT utilisés pour "
+                      "l'analyse sont ceux d'aujourd'hui, pas ceux du jour de la détection. Pour un "
+                      "historique cohérent, lancez congestion.py juste après main.py.[/yellow]")
 
     with console.status("Lecture du catalogue et du SATCAT..."):
         objects = filter_leo(load_catalog(fetch_all()))
@@ -161,7 +198,8 @@ def main() -> None:
         global_index, band_index = overrepresentation(classified, metadata, presence)
     print_global_index(console, global_index)
     print_band_index(console, band_index)
-    print_density(console, density_table(presence, metadata["active"], classified["band"], info["hours"]))
+    density = density_table(presence, metadata["active"], classified["band"], info["hours"])
+    print_density(console, density)
 
     # Matrice d'exposition opérateur × opérateur (page HTML)
     OUTPUT_DIR.mkdir(exist_ok=True)
@@ -169,6 +207,11 @@ def main() -> None:
     plot_exposure(exposure_matrix(classified, metadata, info["hours"]), OUTPUT_DIR / "exposure.html",
                   title_suffix=f", détection du {start:%d/%m/%Y %H:%M} UTC sur {info['hours']:g} h")
     console.print(f"Matrice d'exposition : {OUTPUT_DIR / 'exposure.html'}")
+
+    # Historique : enregistrement de cette analyse, puis évolution des analyses précédentes
+    save_history(events, info, metadata, global_index, density)
+    console.print(f"Analyse historisée dans {HISTORY_DIR}")
+    print_evolution(console, load_history())
 
     console.print("Ces catégories décrivent qui se croise de près, pas un niveau de risque : "
                   "les distances sont nominales (TLE précis à ~1 km). Un indice différent de 1 "
