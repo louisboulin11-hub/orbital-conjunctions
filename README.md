@@ -210,3 +210,7 @@ Voici les pistes identifiées puis écartées pour l'instant car leur coût dép
 - animer le mouvement des objets
 - rejouer tout le catalogue de 2009 pour tester la priorisation
 - ajouter des intervalles de confiance aux indices pour distinguer les vrais écarts du hasard
+
+## Conclusion
+
+En orbite basse, la congestion visible dans les données publiques s'explique davantage par la densité d'objets à chaque altitude (dominée par Starlink entre 400 et 500 km) plutôt que par le comportement des acteurs. Les principaux enjeux de gouvernance sont ainsi la capacité des couches orbitales et le coût des débris supporté par d'autres que leurs responsables.
