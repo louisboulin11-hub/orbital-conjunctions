@@ -1,12 +1,12 @@
 # Orbital Conjunctions
 
-Cet outil Python qui repère les satellites et débris en orbite basse susceptibles passer près les uns des autres dans les 24 heures à venir, à partir de données publiques. Il a été rétro-testé
+Cet outil Python repère les satellites et débris en orbite basse susceptibles passer près les uns des autres dans les 24 heures à venir, à partir de données publiques. Il a été rétro-testé
 sur deux collisions réelles et permet une analyse de la congestion orbitale.
 
 ## Le problème
 
 Des dizaines de milliers d'objets (satellites en service ou débris issus d'explosions/collisions) tournent en orbite basse (moins de 2 000 km
-d'altitude). Le catalogue utilisé ici en contient environ 18 000. Ces objets se déplacent à environ 7,5 km/s ; une collision entre deux les détruirait en créant des milliers de nouveaux débris.
+d'altitude). Le catalogue utilisé ici en contient environ 18 000. Ces objets se déplacent à environ 7,5 km/s ; une collision entre les deux les détruirait en créant de nouveaux débris.
 
 La question : parmi les (environ) 159 millions de paires d'objets possibles,
 lesquelles vont passer proche l'une de l'autre ?
@@ -17,7 +17,7 @@ lesquelles vont passer proche l'une de l'autre ?
 Le commandement spatial américain publie pour chaque objet un TLE (Two-Line Elements),
 deux lignes de texte qui décrivent son orbite (inclinaison, forme de
 l'orbite, nombre de périodes par jour, position sur l'orbite...). Un TLE correspond à une description de la trajectoire, à partir de laquelle on calcule la position à
-n'importe quel instant. On télécharge les TLE depuis CelesTrak (https://celestrak.org, le programme en garde une copie locale pendant 2 h).Le catalogue utilisé contient des satellites actifs et trois nuages de
+n'importe quel instant. On télécharge les TLE depuis CelesTrak (https://celestrak.org, le programme en garde une copie locale pendant 2h).Le catalogue utilisé contient des satellites actifs et trois nuages de
 débris, dont ceux du satellite chinois Fengyun 1C (détruit par un tir de missile en 2007), et
 ceux de la collision entre Iridium 33 et Cosmos 2251 (2009). Seuls les objets dont
 l'orbite est entièrement sous 2 000 km sont gardés.
@@ -67,7 +67,7 @@ Ce que ça montre :
 
 - Le danger aurait été signalé dans les deux cas et dès trois jours avant
 - Avec les TLE de la veille, le programme prévoit 584 m pour Iridium / Cosmos, exactement la
-  valeur publiée à l'époque par le système SOCRATES de CelesTrak
+  valeur publiée à l'époque par le système SOCRATES de CelesTrak (source : https://celestrak.org/publications/AMOS/2009/AMOS-2009.pdf)
 - L'écart de 0,6 à 1,2 km vient de l'imprécision des TLE d'environ 1 km. C'est pourquoi le seuil d'alerte doit être large (avec un seuil de 1 km, l'alerte aurait été manquée deux jours avant)
 - Seule la paire concernée a été rétro-testée ; le test vérifie que le rapprochement aurait été
   détecté, mais pas qu'il aurait été jugé prioritaire. En 2009, SOCRATES l'avait bien signalé, mais
@@ -78,7 +78,7 @@ Ce que ça montre :
 
 Le script congestion.py relit la dernière détection et cherche à comprendre qui se croise. Chaque rapprochement est classé par catégorie selon les deux objets en présence :
 
-- intra-constellation (congestion interne) : deux satellites actifs dumême opérateur ;
+- intra-constellation (congestion interne) : deux satellites actifs du même opérateur ;
 - inter-opérateurs (exposition) : deux satellites actifs d'opérateurs différents ;
 - actifs, opérateur indéterminé : deux satellites non identifiés du même pays, dont on ne peut
   pas savoir s'ils appartiennent au même opérateur ;
@@ -89,9 +89,9 @@ Le script congestion.py relit la dernière détection et cherche à comprendre q
 Sur deux journées analysées, 73 à 77 % des rapprochements ont lieu entre deux satellites
 Starlink, 19 à 23 % ont lieu entre opérateurs différents, et environ 4 % impliquent un débris.
 
-Cependant, ces pourcentages bruts sont trompeurs. Starlink représente nen effet 70 % des satellites
+Cependant, ces pourcentages bruts sont trompeurs. Starlink représente en effet 70 % des satellites
 actifs et il est donc normal qu'il soit impliqué dans la plupart des rapprochements. Pour savoir
-si une catégorie est plus fréquente que prévu, le programme calcule un indice : le rapport entre la part observée et la part attendue si les objets se croisaient au hasard. Le calcul est réalisé de deux façons. La version simple suppose que n'importe quelle paire d'objets peut se croiser. La version "corrigée" ne compare que des objets présents à la même altitude,par tranches de 100 km. Les débris ayant souvent des orbites allongées, chaque objet est compté dans chaque tranche au prorata du temps qu'il y passe.
+si une catégorie est plus fréquente que prévu, le programme calcule un indice : le rapport entre la part observée et la part attendue si les objets se croisaient au hasard. Le calcul est réalisé de deux façons. La version simple suppose que n'importe quelle paire d'objets peut se croiser. La version "corrigée" ne compare que des objets présents à la même altitude, par tranches de 100 km. Les débris ayant souvent des orbites allongées, chaque objet est compté dans chaque tranche au prorata du temps qu'il y passe.
 
 Pour la détection du 27 septembre 2026, avec le calcul simple, les rapprochements
 Starlink / Starlink semblent deux fois plus fréquents que prévu (indice 2,14). Mais avec le calcul
@@ -213,4 +213,4 @@ Voici les pistes identifiées puis écartées pour l'instant car leur coût dép
 
 ## Conclusion
 
-En orbite basse, la congestion visible dans les données publiques s'explique davantage par la densité d'objets à chaque altitude (dominée par Starlink entre 400 et 500 km) plutôt que par le comportement des acteurs. Les principaux enjeux de gouvernance sont ainsi la capacité des couches orbitales et le coût des débris supporté par d'autres que leurs responsables.
+Sur deux journées d'analyse, la congestion visible en orbite basse s'explique davantage par la densité d'objets à chaque altitude (dominée par Starlink entre 400 et 500 km) plutôt que par le comportement des acteurs. Les principaux enjeux de gouvernance seraient ainsi la capacité des couches orbitales et les coûts des débris supportés par d'autres que leurs responsables.
