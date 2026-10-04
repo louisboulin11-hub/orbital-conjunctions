@@ -1,105 +1,57 @@
 # Orbital Conjunctions
 
-Outil Python qui repère, à partir de données publiques, les satellites et débris en orbite
-basse qui vont passer près les uns des autres dans les 24 heures à venir. Il a été vérifié
-sur deux collisions réelles, et il propose une analyse de la congestion orbitale : qui se
-croise de près, et pourquoi.
-
+Cet outil Python qui repère les satellites et débris en orbite basse susceptibles passer près les uns des autres dans les 24 heures à venir, à partir de données publiques. Il a été rétro-testé
+sur deux collisions réelles et permet une analyse de la congestion orbitale.
 
 ## Le problème
 
-Des dizaines de milliers d'objets suivis tournent en orbite basse (moins de 2 000 km
-d'altitude) : des satellites en service, mais aussi des débris issus d'explosions ou de
-collisions. Le catalogue utilisé ici en contient environ 17 800 (voir plus bas).
-Ils se déplacent à environ 7,5 km/s. Deux objets qui se croisent le font souvent à plus de
-10 km/s, et un choc détruit les deux en créant des milliers de nouveaux débris.
+Des dizaines de milliers d'objets (satellites en service ou débris issus d'explosions/collisions) tournent en orbite basse (moins de 2 000 km
+d'altitude). Le catalogue utilisé ici en contient environ 18 000. Ces objets se déplacent à environ 7,5 km/s ; une collision entre deux les détruirait en créant des milliers de nouveaux débris.
 
-La question posée par ce projet : parmi les ~159 millions de paires d'objets possibles,
-lesquelles vont passer à moins de 5 km l'une de l'autre dans les prochaines 24 heures ?
+La question : parmi les (environ) 159 millions de paires d'objets possibles,
+lesquelles vont passer proche l'une de l'autre ?
 
 
 ## Les données utilisées
 
-TLE (Two-Line Elements). Le commandement spatial américain publie pour chaque objet un TLE :
-deux lignes de texte qui décrivent son orbite à un instant donné (inclinaison, forme de
-l'orbite, nombre de tours par jour, position sur l'orbite...). Un TLE n'est pas une position :
-c'est une description de la trajectoire, à partir de laquelle on calcule la position à
-n'importe quel instant. Les TLE sont téléchargés depuis CelesTrak (https://celestrak.org),
-qui demande de ne pas re-télécharger les mêmes données plus d'une fois toutes les deux
-heures : le programme garde donc une copie locale pendant 2 h.
+Le commandement spatial américain publie pour chaque objet un TLE (Two-Line Elements),
+deux lignes de texte qui décrivent son orbite (inclinaison, forme de
+l'orbite, nombre de périodes par jour, position sur l'orbite...). Un TLE correspond à une description de la trajectoire, à partir de laquelle on calcule la position à
+n'importe quel instant. On télécharge les TLE depuis CelesTrak (https://celestrak.org, le programme en garde une copie locale pendant 2 h).Le catalogue utilisé contient des satellites actifs et trois nuages de
+débris, dont ceux du satellite chinois Fengyun 1C (détruit par un tir de missile en 2007), et
+ceux de la collision entre Iridium 33 et Cosmos 2251 (2009). Seuls les objets dont
+l'orbite est entièrement sous 2 000 km sont gardés.
 
-Le catalogue utilisé contient les satellites actifs de CelesTrak et trois grands nuages de
-débris : ceux du satellite chinois Fengyun 1C (détruit par un tir de missile en 2007), et
-ceux de la collision entre Iridium 33 et Cosmos 2251 (2009). Seuls les objets dont toute
-l'orbite est sous 2 000 km sont gardés, soit environ 17 800 objets.
-
-SATCAT. Le catalogue des objets de CelesTrak (un fichier mis à jour chaque jour, gardé
-24 h en cache) donne pour chaque objet son type (satellite, corps de fusée, débris), son
-statut (en service ou non) et un code propriétaire. Attention : ce code est surtout un pays
-(US, PRC, UK...). Starlink (SpaceX) et Kuiper (Amazon) y sont tous deux "US". Pour distinguer
-les opérateurs, le programme reconnaît donc les grandes familles de satellites au début de
-leur nom (STARLINK-1234, ONEWEB-0012, FLOCK 4H-19...), à partir d'une liste écrite à la main
-de 21 familles. Environ 86 % des satellites actifs sont ainsi rattachés à une famille ; les
+Le programme utilise SATCAT, le catalogue des objets de CelesTrak (un fichier mis à jour chaque jour, gardé 24 h en cache), qui donne pour chaque objet son type (satellite, corps de fusée, débris), son statut (en/hors service) et un code propriétaire (correspondant surtout à un pays). Pour distinguer les opérateurs, le programme reconnaît les grandes familles de satellites au début de leur nom (ex : STARLINK-1234, ONEWEB-0012), à partir d'une liste écrite à la main
+de 21 familles. Environ 86 % des satellites actifs sont rattachés à une famille ; les
 autres sont classés "non identifiés", avec leur pays.
 
-TLE historiques. Pour rejouer des collisions passées, les TLE de l'époque sont téléchargés
-depuis Space-Track.org, le site officiel qui les produit (compte gratuit nécessaire).
-
-Côtes des continents. Pour les vues 3D, les contours viennent de la base libre Natural Earth.
+Pour la rétro-validation, on utilise aussi les TLE historiques (téléchargés depuis Space-Track.org).
 
 
 ## Comment fonctionne la détection
 
-1. Calcul des positions. L'algorithme SGP4, utilisé avec les TLE depuis les années 1980,
-transforme un TLE et une date en position et vitesse. Le programme calcule la position de
-chaque objet toutes les 10 secondes pendant 24 heures, soit environ 154 millions de positions.
-Le calcul est fait pour tous les objets à la fois (vectorisé avec numpy), et découpé en
-tranches de 30 minutes pour ne pas saturer la mémoire.
+1) L'algorithme SGP4 est utilisé pour calculer les positions avec les TLE depuis les années 1980 (il transforme un TLE et une date en position et vitesse). Le programme calcule la position de
+chaque objet toutes les 10 secondes pendant 24 heures. Le calcul est fait pour tous les objets à la fois et découpé en tranches de 30 minutes pour ne pas saturer la mémoire.
 
-2. Recherche des paires proches, en entonnoir. Comparer toutes les paires à chaque instant
-serait beaucoup trop long. On procède en trois filtres successifs :
+2) Ensuite vient la recherche des paires proches, en entonnoir. Comparer toutes les paires à chaque instant serait beaucoup trop long, donc on utilise trois filtres successifs :
 
 - À chaque instant, un KD-tree (une structure qui range les points de l'espace dans des boîtes
-  imbriquées) trouve les paires à moins de 85 km, sans tester toutes les paires. Pourquoi 85 km
-  et pas 5 ? Le moment exact du rapprochement tombe entre deux instants de la grille, au plus
-  à 5 secondes de l'un d'eux. En 5 secondes, deux objets qui se croisent à 16 km/s (le maximum
-  en orbite basse) s'éloignent de 80 km. Si deux objets passent à moins de 5 km, ils sont donc
-  forcément à moins de 5 + 80 = 85 km à un instant de la grille : aucun rapprochement n'est raté.
+  imbriquées) trouve les paires à moins de 85 km. En effet le moment exact du rapprochement tombe entre deux instants de la grille donc au plus à 5 secondes de l'un d'eux. En 5 secondes, deux objets se croisant à 16 km/s (le maximum en orbite basse) s'éloignent de 80 km. Si deux objets passent à moins de 5 km, ils sont donc forcément à moins de 85 km à un instant de la grille. Ainsi aucun rapprochement n'est raté.
 - Sur quelques secondes, une trajectoire orbitale est presque une ligne droite (l'erreur est
-  d'environ un mètre). Pour chaque paire trouvée, on calcule donc directement, en ligne droite,
-  à quel moment et à quelle distance les deux objets seront au plus près. On ne garde que les
-  paires qui passent à moins de 6 km.
-- Pour les paires restantes, on recalcule avec SGP4 l'instant exact du rapprochement (appelé
-  TCA) et la distance minimale, à la milliseconde près, avec une méthode de recherche de minimum
-  (méthode de Brent).
+  d'environ un mètre). Pour chaque paire trouvée, on calcule donc en ligne droite à quel moment et à quelle distance les deux objets seront au plus près. On ne garde que les paires qui passent à moins de 6 km.
+- Pour les paires restantes, on recalcule avec SGP4 l'instant exact du rapprochement (TCA) et la   distance minimale avec une méthode de recherche de minimum (méthode de Brent).
 
-Sur une journée type, l'entonnoir donne à peu près ceci :
+Sur une journée type, on obtient à peu près ceci :
 
     Toutes les paires possibles ..................... 159 000 000
     Paires à moins de 85 km à un instant (KD-tree) ...  3 700 000
     Paires à moins de 6 km (ligne droite) ...........     71 000
     Rapprochements à moins de 5 km (calcul exact) ...  50 000 à 60 000
 
-Une même paire peut se croiser plusieurs fois dans la journée (une fois par tour d'orbite),
-d'où plus de rapprochements que de paires. Les objets qui voyagent ensemble (modules amarrés
-à une station spatiale, satellites en vol en formation) sont écartés : leur vitesse relative
-est inférieure à 10 m/s, ce ne sont pas des croisements.
-
-Vue d'ensemble produite par view.py : les objets du catalogue le 4 octobre 2026 à 19:01 UTC
-(bleu : Starlink, orange : autres satellites, vert : débris), l'ISS, Hubble et la station
-chinoise Tiangong avec leur orbite, et en rouge l'endroit où auront lieu les 20 prochains
-rapprochements les plus proches. La page est interactive : on peut faire tourner le globe et
-survoler un objet pour afficher son nom.
+Une même paire peut se croiser plusieurs fois dans la journée. Les objets qui voyagent ensemble (modules amarrés à une station spatiale, satellites en vol en formation) sont écartés : leur vitesse relative est inférieure à 10 m/s, ce ne sont pas des croisements.
 
 ![Vue d'ensemble des objets en orbite basse](docs/images/overview.png)
-
-Détail d'un rapprochement (event.html) : deux satellites Starlink qui doivent passer à 19 m
-l'un de l'autre, à 7,68 km/s, le 5 octobre 2026 à 01:19:53 UTC. À gauche, les deux orbites et
-le point de rapprochement ; à droite, les trajectoires des deux satellites sur trois centièmes
-de seconde autour de cet instant, avec en rouge la distance minimale. Comme toutes les distances
-de l'outil, ces 19 m sont une valeur nominale, calculée avec des TLE précis à environ 1 km.
-
-![Détail d'un rapprochement entre deux satellites Starlink](docs/images/event.png)
 
 
 ## Vérification sur deux collisions réelles
@@ -131,34 +83,24 @@ Ce que ça montre :
 
 ## Analyse de la congestion
 
-Le script congestion.py relit la dernière détection et cherche à comprendre qui se croise.
+Le script congestion.py relit la dernière détection et cherche à comprendre qui se croise. Chaque rapprochement est classé par catégorie selon les deux objets en présence :
 
-Classement des rapprochements. Chaque rapprochement est rangé dans une catégorie, selon les
-deux objets en présence :
-
-- intra-constellation (congestion interne) : deux satellites actifs de la même famille, donc du
-  même opérateur, qui gère seul ces croisements ;
-- inter-opérateurs (exposition) : deux satellites actifs de familles différentes ;
+- intra-constellation (congestion interne) : deux satellites actifs dumême opérateur ;
+- inter-opérateurs (exposition) : deux satellites actifs d'opérateurs différents ;
 - actifs, opérateur indéterminé : deux satellites non identifiés du même pays, dont on ne peut
   pas savoir s'ils appartiennent au même opérateur ;
 - actif / objet inactif (pollution) : un satellite actif face à un débris, un corps de fusée
   ou un satellite hors service ;
-- inactif / inactif (pollution) : deux objets qui ne sont plus en service.
+- inactif / inactif (pollution) : deux objets hors-service
 
-Sur les deux journées analysées, 73 à 77 % des rapprochements ont lieu entre deux satellites
-Starlink, 19 à 23 % entre opérateurs différents, et environ 4 % impliquent un débris.
+Sur deux journées analysées, 73 à 77 % des rapprochements ont lieu entre deux satellites
+Starlink, 19 à 23 % ont lieu entre opérateurs différents, et environ 4 % impliquent un débris.
 
-Normalisation. Ces pourcentages bruts sont trompeurs : Starlink représente 70 % des satellites
-actifs, il est donc normal qu'il soit présent dans la plupart des rapprochements. Pour savoir
+Cependant, ces pourcentages bruts sont trompeurs. Starlink représente nen effet 70 % des satellites
+actifs et il est donc normal qu'il soit impliqué dans la plupart des rapprochements. Pour savoir
 si une catégorie est plus fréquente que prévu, le programme calcule un indice : la part observée
 divisée par la part attendue si les objets se croisaient au hasard. Un indice de 1 veut dire
-"autant que prévu", au-dessus de 1 "plus que prévu".
-
-Le calcul est fait de deux façons. La version simple suppose que n'importe quelle paire d'objets
-peut se croiser. La version corrigée ne compare que des objets présents à la même altitude
-(par tranches de 100 km), car deux objets à 400 et 1 200 km ne se croiseront jamais. Les débris
-ayant souvent des orbites allongées, chaque objet est compté dans chaque tranche au prorata du
-temps qu'il y passe.
+"autant que prévu", au-dessus de 1 "plus que prévu". Le calcul est réalisé de deux façons. La version simple suppose que n'importe quelle paire d'objets peut se croiser. La version corrigée ne compare que des objets présents à la même altitude (par tranches de 100 km), car deux objets à 400 et 1 200 km ne se croiseront jamais. Les débris ayant souvent des orbites allongées, chaque objet est compté dans chaque tranche au prorata du temps qu'il y passe.
 
 Résultat, pour la détection du 27 septembre 2026 : avec le calcul simple, les rapprochements
 Starlink / Starlink semblent deux fois plus fréquents que prévu (indice 2,14) ; avec le calcul
@@ -278,7 +220,7 @@ Les résultats sont écrits dans le dossier output/ :
 
 ## Limites
 
-- Précision. Les TLE sont précis à environ 1 km au moment de la mesure, et l'erreur augmente de
+- Précision : es TLE sont précis à environ 1 km au moment de la mesure et l'erreur augmente de
   quelques km par jour. Les distances affichées sont des distances "nominales" : l'outil sert à
   repérer les rapprochements qui méritent une analyse plus fine, pas à calculer une probabilité
   de collision, qui demanderait de connaître l'incertitude de chaque position.
@@ -296,7 +238,7 @@ Les résultats sont écrits dans le dossier output/ :
 
 ## Pistes non réalisées
 
-Identifiées, puis écartées pour l'instant parce que leur coût dépassait leur intérêt :
+Voici les pistes identifiées puis écartées pour l'instant parce que leur coût dépassait leur intérêt :
 
 - utiliser le catalogue complet de Space-Track, pour inclure les corps de fusée, les satellites
   hors service et tous les débris ;
@@ -306,4 +248,4 @@ Identifiées, puis écartées pour l'instant parce que leur coût dépassait leu
   le navigateur en JavaScript) : view.py en quelques secondes suffit ;
 - animer le mouvement des objets : surtout décoratif, pour une page beaucoup plus lourde ;
 - rejouer tout le catalogue de 2009, pour tester la priorisation et pas seulement la détection ;
-- ajouter des intervalles de confiance aux indices, pour distinguer les vrais écarts du hasard.
+- ajouter des intervalles de confiance aux indices, pour distinguer les vrais écarts du hasard

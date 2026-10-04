@@ -1,8 +1,3 @@
-"""Détecteur de rapprochements orbitaux (calcul long : quelques minutes).
-
-Utilisation : python main.py [options]      (python main.py --help pour la liste)
-Les résultats sont enregistrés dans output/ ; les vues 3D se génèrent ensuite avec view.py.
-"""
 
 import argparse
 import time
