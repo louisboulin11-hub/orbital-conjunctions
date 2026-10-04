@@ -21,9 +21,12 @@ from conjunctions.governance import (
     LABELS,
     MIN_EXPECTED_EVENTS,
     classify_events,
+    exposure_matrix,
     overrepresentation,
     summarize_categories,
 )
+from conjunctions.report import OUTPUT_DIR
+from conjunctions.visualize import plot_exposure
 from conjunctions.metadata import build_metadata
 from conjunctions.report import load_last_run
 
@@ -159,6 +162,13 @@ def main() -> None:
     print_global_index(console, global_index)
     print_band_index(console, band_index)
     print_density(console, density_table(presence, metadata["active"], classified["band"], info["hours"]))
+
+    # Matrice d'exposition opérateur × opérateur (page HTML)
+    OUTPUT_DIR.mkdir(exist_ok=True)
+    start = datetime.fromisoformat(info["start_utc"])
+    plot_exposure(exposure_matrix(classified, metadata, info["hours"]), OUTPUT_DIR / "exposure.html",
+                  title_suffix=f", détection du {start:%d/%m/%Y %H:%M} UTC sur {info['hours']:g} h")
+    console.print(f"Matrice d'exposition : {OUTPUT_DIR / 'exposure.html'}")
 
     console.print("Ces catégories décrivent qui se croise de près, pas un niveau de risque : "
                   "les distances sont nominales (TLE précis à ~1 km). Un indice différent de 1 "

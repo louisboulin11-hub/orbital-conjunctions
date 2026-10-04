@@ -20,6 +20,7 @@ from sgp4.propagation import gstime
 
 from .catalog import SpaceObject
 from .fetch import fetch_coastlines
+from .governance import DEBRIS_GROUP, ExposureMatrix
 from .propagate import julian_date, propagate_catalog
 
 # Couleurs sur fond sombre : les 3 premières teintes de la palette catégorielle
@@ -289,5 +290,119 @@ def plot_event(objects: list[SpaceObject], event: pd.Series, path: Path) -> None
         scene2={"xaxis": km_axis, "yaxis": km_axis, "zaxis": km_axis,
                 "aspectmode": "data", "bgcolor": BACKGROUND},
         legend={"orientation": "h", "y": -0.05}, margin={"l": 0, "r": 40, "t": 80, "b": 40},
+    )
+    save_html(fig, path)
+
+
+# Matrice d'exposition : échelle séquentielle à une seule teinte (bleus de la palette de
+# référence), du plus sombre (peu, se confond avec le fond) au plus clair (beaucoup).
+SEQUENTIAL_BLUES = ["#0d366b", "#184f95", "#256abf", "#3987e5", "#6da7ec", "#9ec5f4", "#cde2fb"]
+INTRA_COLOR = "#383835"  # cases intra-constellation : grisées, hors échelle
+
+
+def log_ticks(low: float, high: float) -> tuple[list[float], list[str]]:
+    """Graduations 1-2-5 (1, 2, 5, 10, 20, 50...) entre low et high, pour une échelle logarithmique."""
+    values = [m * 10 ** e for e in range(math.floor(math.log10(low)), math.ceil(math.log10(high)) + 1)
+              for m in (1, 2, 5) if low <= m * 10 ** e <= high]
+    return [math.log10(v) for v in values], [f"{v:g}" for v in values]
+
+
+def exposure_view(values: pd.DataFrame, matrix: ExposureMatrix, unit: str, decimals: int,
+                  visible: bool) -> tuple[list, list[dict]]:
+    """Les deux couches d'une vue (cases normales, cases intra grisées) et le texte des cases."""
+    order = matrix.order
+    grid = values.reindex(index=order, columns=order)
+    intra_mask = pd.DataFrame(False, index=order, columns=order)
+    for family in matrix.single_families:
+        intra_mask.loc[family, family] = True
+    if decimals:  # vue par satellite : la valeur intra est aussi ramenée au satellite
+        intra_values = matrix.intra_per_day / matrix.satellites.replace(0, np.nan)
+    else:
+        intra_values = matrix.intra_per_day
+
+    shown = grid.where(~intra_mask & (grid > 0))  # cases colorées : ni intra, ni nulles
+    low, high = np.nanmin(shown.to_numpy()), np.nanmax(shown.to_numpy())
+    z = np.log10(shown.to_numpy())  # échelle logarithmique : un palier de couleur = ×10
+
+    def fmt(value: float) -> str:
+        if decimals:  # petites valeurs : deux chiffres significatifs (0.0007 plutôt que 0.00)
+            return f"{value:.2g}"
+        return f"{value:,.0f}".replace(",", " ")
+
+    hover, annotations = [], []
+    for i, row in enumerate(order):
+        hover_row = []
+        for j, col in enumerate(order):
+            value = grid.iloc[i, j]
+            if intra_mask.iloc[i, j]:
+                hover_row.append(f"{row}<br>Intra-constellation (congestion interne), non comptée "
+                                 f"comme exposition : {fmt(intra_values[row])} {unit}")
+                text, color = f"({fmt(intra_values[row])})", TEXT_COLOR
+            elif pd.isna(value):
+                hover_row.append(f"{row} : sans objet (aucun satellite actif)")
+                text, color = "", TEXT_COLOR
+            else:
+                note = ""
+                if row == col and row != DEBRIS_GROUP:
+                    note = "<br>Groupe agrégé : rapprochements entre membres différents du groupe"
+                hover_row.append(f"{row}<br>× {col}<br>{fmt(value)} {unit}{note}")
+                level = (math.log10(value) - math.log10(low)) / max(math.log10(high / low), 1e-9) \
+                    if value > 0 else 0
+                text = fmt(value) if value > 0 else ""
+                color = "#0b0b0b" if level > 0.6 else "#ffffff"  # contraste sur cases claires
+            if text:
+                annotations.append({"x": col, "y": row, "text": text, "showarrow": False,
+                                    "font": {"color": color, "size": 11}})
+        hover.append(hover_row)
+
+    tickvals, ticktext = log_ticks(low, high)
+    main = go.Heatmap(
+        z=z, x=order, y=order, colorscale=SEQUENTIAL_BLUES, zmin=math.log10(low), zmax=math.log10(high),
+        xgap=2, ygap=2, hovertext=hover, hovertemplate="%{hovertext}<extra></extra>", visible=visible,
+        colorbar={"title": {"text": unit}, "tickvals": tickvals, "ticktext": ticktext},
+    )
+    grey = go.Heatmap(
+        z=np.where(intra_mask.to_numpy(), 1.0, np.nan), x=order, y=order,
+        colorscale=[[0, INTRA_COLOR], [1, INTRA_COLOR]], showscale=False, xgap=2, ygap=2,
+        hovertext=hover, hovertemplate="%{hovertext}<extra></extra>", visible=visible,
+    )
+    return [main, grey], annotations
+
+
+def plot_exposure(matrix: ExposureMatrix, path: Path, title_suffix: str = "") -> None:
+    """Matrice d'exposition opérateur × opérateur, avec un bouton pour changer de vue.
+
+    Vue 1 : rapprochements nominaux par jour (symétrique).
+    Vue 2 : rapprochements par satellite de la ligne et par jour (se lit ligne par ligne).
+    """
+    view_day, notes_day = exposure_view(matrix.per_day, matrix, "rapprochements / jour", 0, True)
+    view_sat, notes_sat = exposure_view(matrix.per_satellite, matrix, "rapprochements / satellite / jour",
+                                        2, False)
+    caption = {
+        "x": 0, "y": -0.04, "xref": "paper", "yref": "paper", "xanchor": "left", "yanchor": "top",
+        "showarrow": False,
+        "align": "left", "font": {"size": 11, "color": TEXT_COLOR},
+        "text": ("Rapprochements nominaux à moins de 5 km : ce n'est pas une mesure de risque (TLE précis "
+                 "à ~1 km). Cases grisées : intra-constellation, hors exposition.<br>Non identifiés : groupés "
+                 "par pays, pas par opérateur. Le catalogue ne contient presque ni corps de fusée ni "
+                 "satellites hors service : la ligne débris est un minimum."),
+    }
+    fig = go.Figure(view_day + view_sat)
+    fig.update_layout(
+        title=f"Exposition entre opérateurs (rapprochements nominaux){title_suffix}",
+        paper_bgcolor=BACKGROUND, plot_bgcolor=BACKGROUND, font={"color": TEXT_COLOR},
+        xaxis={"side": "top", "tickangle": -35, "showgrid": False},
+        yaxis={"autorange": "reversed", "showgrid": False},
+        annotations=notes_day + [caption], margin={"l": 260, "r": 40, "t": 230, "b": 140},
+        updatemenus=[{
+            "type": "buttons", "direction": "right", "x": 0, "y": 1.32, "xanchor": "left",
+            "bgcolor": "#2c2c2a", "font": {"color": TEXT_COLOR},
+            "buttons": [
+                {"label": "Rapprochements / jour", "method": "update",
+                 "args": [{"visible": [True, True, False, False]}, {"annotations": notes_day + [caption]}]},
+                {"label": "Par satellite de la ligne", "method": "update",
+                 "args": [{"visible": [False, False, True, True]}, {"annotations": notes_sat + [caption]}]},
+            ],
+        }],
     )
     save_html(fig, path)

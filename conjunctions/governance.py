@@ -5,6 +5,8 @@ Rappel : une distance nominale sous le seuil n'est PAS une mesure de risque (TLE
 croise de près, pas qui court un danger.
 """
 
+from dataclasses import dataclass
+
 import pandas as pd
 
 # Catégories, dans l'ordre d'affichage : (code, libellé)
@@ -135,6 +137,89 @@ def overrepresentation(classified: pd.DataFrame, metadata: pd.DataFrame,
             if expected_adjusted[code] >= MIN_EXPECTED_EVENTS else None,
         })
     return pd.DataFrame(global_rows), pd.DataFrame(band_rows)
+
+
+# Regroupements pour la matrice d'exposition (94 opérateurs distincts seraient illisibles)
+TOP_FAMILIES = 8
+OTHER_FAMILIES = "Autres familles identifiées"
+UNIDENTIFIED_BY_COUNTRY = {
+    "PRC": "Non identifiés : Chine",
+    "US": "Non identifiés : États-Unis",
+    "CIS": "Non identifiés : CEI / Russie",
+    "TBD": "Non identifiés : propriétaire non déterminé",
+}
+OTHER_UNIDENTIFIED = "Non identifiés : autres pays"
+DEBRIS_GROUP = "Débris et objets inactifs"
+
+
+@dataclass
+class ExposureMatrix:
+    """Matrices d'exposition entre groupes d'opérateurs (rapprochements nominaux)."""
+
+    order: list[str]  # ordre des lignes et des colonnes
+    single_families: list[str]  # groupes réduits à une seule famille (diagonale = intra)
+    per_day: pd.DataFrame  # rapprochements / jour hors intra-constellation, symétrique
+    intra_per_day: pd.Series  # rapprochements intra-constellation / jour, par groupe
+    satellites: pd.Series  # nombre de satellites actifs par groupe
+    per_satellite: pd.DataFrame  # per_day ÷ satellites de la ligne (lignes : groupes actifs)
+
+
+def operator_groups(classified: pd.DataFrame, metadata: pd.DataFrame,
+                    top_n: int = TOP_FAMILIES) -> tuple[pd.Series, list[str], list[str]]:
+    """Rattache chaque objet à un groupe de la matrice.
+
+    Les top_n familles les plus présentes dans les rapprochements hors intra-constellation
+    gardent leur propre ligne ; les autres familles sont regroupées ; les satellites non
+    identifiés sont regroupés par pays ; tous les objets inactifs forment la ligne "débris".
+    Renvoie (groupe de chaque objet, ordre d'affichage, familles gardées seules).
+    """
+    non_intra = classified[classified["category"] != "intra"]
+    families = pd.concat([metadata["family"].reindex(non_intra["norad_1"]),
+                          metadata["family"].reindex(non_intra["norad_2"])])
+    top = list(families[families.fillna("") != ""].value_counts().head(top_n).index)
+
+    def group_of(row: pd.Series) -> str:
+        if not row["active"]:
+            return DEBRIS_GROUP
+        if row["family"] in top:
+            return row["family"]
+        if row["family"]:
+            return OTHER_FAMILIES
+        return UNIDENTIFIED_BY_COUNTRY.get(row["owner"], OTHER_UNIDENTIFIED)
+
+    groups = metadata.apply(group_of, axis=1)
+    order = top + [OTHER_FAMILIES, *UNIDENTIFIED_BY_COUNTRY.values(), OTHER_UNIDENTIFIED, DEBRIS_GROUP]
+    return groups, order, top
+
+
+def exposure_matrix(classified: pd.DataFrame, metadata: pd.DataFrame, hours: float) -> ExposureMatrix:
+    """Construit les matrices d'exposition groupe × groupe.
+
+    Les rapprochements intra-constellation sont mis à part : ce n'est pas de l'exposition
+    entre acteurs. Ils sont gardés dans intra_per_day pour être affichés sur la diagonale.
+    """
+    groups, order, single = operator_groups(classified, metadata)
+    g1 = groups.reindex(classified["norad_1"]).to_numpy()
+    g2 = groups.reindex(classified["norad_2"]).to_numpy()
+    sides = pd.DataFrame({"g1": g1, "g2": g2, "category": classified["category"].to_numpy()}).dropna()
+    scale = 24 / hours  # ramène à une journée
+
+    intra = sides[sides["category"] == "intra"]
+    intra_per_day = intra["g1"].value_counts().reindex(order, fill_value=0) * scale
+
+    # Tableau croisé (ligne = groupe de l'objet 1, colonne = groupe de l'objet 2), puis
+    # symétrisation : un rapprochement A-B compte dans la case (A, B) et dans la case (B, A).
+    other = sides[sides["category"] != "intra"]
+    counts = pd.crosstab(other["g1"], other["g2"]).reindex(index=order, columns=order, fill_value=0)
+    symmetric = counts + counts.T
+    for g in order:  # la diagonale a été comptée deux fois
+        symmetric.loc[g, g] = counts.loc[g, g]
+    per_day = symmetric * scale
+
+    satellites = groups[metadata["active"]].value_counts().reindex(order, fill_value=0)
+    active_rows = [g for g in order if g != DEBRIS_GROUP]
+    per_satellite = per_day.loc[active_rows].div(satellites.loc[active_rows], axis=0)
+    return ExposureMatrix(order, single, per_day, intra_per_day, satellites, per_satellite)
 
 
 def summarize_categories(classified: pd.DataFrame) -> pd.DataFrame:
